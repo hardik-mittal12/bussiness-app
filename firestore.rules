@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Access rules for all accounting/inventory sync tables
+    match /ledgers/{document} {
+      allow read: if resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+      allow write: if request.resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+    }
+    
+    match /stock_items/{document} {
+      allow read: if resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+      allow write: if request.resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+    }
+    
+    match /vouchers/{document} {
+      allow read: if resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+      allow write: if request.resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+    }
+    
+    match /voucher_entries/{document} {
+      allow read: if resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+      allow write: if request.resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+    }
+    
+    match /stock_transactions/{document} {
+      allow read: if resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+      allow write: if request.resource.data.syncSecret == 'YOUR_COMPANY_SECRET_KEY';
+    }
+  }
+}

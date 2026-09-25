@@ -2,17 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/accounting_engine.dart';
+import '../core/financial_year_service.dart';
 import '../core/invoice_printer.dart';
 import '../data/database.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'theme/app_theme.dart';
+import 'widgets/print_preview_dialog.dart';
 
 class InvoiceRowItem {
   StockItem? item;
   double quantity;
   double rate;
   double originalRate; // To detect price overrides
+  bool isReplacement;
 
   late final TextEditingController qtyController;
   late final TextEditingController rateController;
@@ -29,9 +33,10 @@ class InvoiceRowItem {
     this.quantity = 0.0,
     this.rate = 0.0,
     this.originalRate = 0.0,
+    this.isReplacement = false,
   }) {
     qtyController = TextEditingController(text: quantity > 0 ? quantity.toString() : '');
-    rateController = TextEditingController(text: rate > 0 ? rate.toString() : '');
+    rateController = TextEditingController(text: isReplacement ? '0.00' : (rate > 0 ? rate.toString() : ''));
 
     qtyFocusNode.addListener(() {
       if (qtyFocusNode.hasFocus) {
@@ -46,7 +51,18 @@ class InvoiceRowItem {
     });
   }
 
-  double get total => quantity * rate;
+  double get total => isReplacement ? 0.0 : (quantity * rate);
+
+  void toggleReplacement(bool value) {
+    isReplacement = value;
+    if (isReplacement) {
+      rate = 0.0;
+      rateController.text = '0.00';
+    } else {
+      rate = originalRate;
+      rateController.text = rate > 0 ? rate.toString() : '';
+    }
+  }
 
   void dispose() {
     qtyController.dispose();
@@ -76,20 +92,24 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
   String? _selectedLedgerId; // Customer for Sales, Supplier for Purchase
   String _narration = '';
   String _referenceNumber = '';
+  double _discountAmount = 0.0;
+  final TextEditingController _discountController = TextEditingController(text: '0.00');
 
   List<InvoiceRowItem> _rows = [];
   List<Ledger> _contactLedgers = []; // Customers/Suppliers loaded dynamically
   List<StockItem> _allItems = [];
   List<StockStatus> _allStockStatus = [];
 
-  final double _taxRatePercent = 0.0; // 0% GST (disabled)
+  final double _taxRatePercent = 0.0; // 0% GST (disabled by default)
   final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
-
+  PrinterPaperSize _selectedPaperSize = PrinterPaperSize.a4;
+  bool _isSubmitting = false;
   bool _isDataLoaded = false;
 
   @override
   void dispose() {
     _narrationFocusNode.dispose();
+    _discountController.dispose();
     for (final row in _rows) {
       row.dispose();
     }
@@ -118,10 +138,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         _narration = detail.voucher.narration ?? '';
         _referenceNumber = detail.voucher.referenceNumber ?? '';
         _selectedLedgerId = detail.contactLedger.id;
+        _discountAmount = detail.voucher.discountAmount;
+        _discountController.text = _discountAmount > 0 ? _discountAmount.toStringAsFixed(2) : '0.00';
 
-        // Load contact ledgers
+        // Load contact ledgers (exclude soft-deleted unless it is the currently selected one)
         final targetGroup = _invoiceType == 'Sales' ? 'debtors' : 'creditors';
-        final contactLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals(targetGroup))).get();
+        final contactLedgers = await (db.select(db.ledgers)
+          ..where((t) => t.groupId.equals(targetGroup) & (t.isDeleted.equals(false) | t.id.equals(_selectedLedgerId!))))
+          .get();
         
         // Load inventory items
         final allItems = await db.select(db.stockItems).get();
@@ -147,9 +171,10 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
           );
           loadedRows.add(InvoiceRowItem(
             item: matchingItem,
-            quantity: st.tx.quantity.abs(), // positive for quantity field display
+            quantity: st.tx.quantity.abs(),
             rate: st.tx.rate,
             originalRate: _invoiceType == 'Sales' ? matchingItem.salesRate : matchingItem.purchaseRate,
+            isReplacement: st.tx.isReplacement,
           ));
         }
 
@@ -169,16 +194,15 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
 
     // Default creation path
     final targetGroup = _invoiceType == 'Sales' ? 'debtors' : 'creditors';
-    final contactLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals(targetGroup))).get();
+    final contactLedgers = await (db.select(db.ledgers)
+      ..where((t) => t.groupId.equals(targetGroup) & t.isDeleted.equals(false)))
+      .get();
     
     final allItems = await db.select(db.stockItems).get();
     final stockStatus = await engine.getStockSummary();
 
-    // Auto-generate invoice number
-    final vouchersList = await db.select(db.vouchers).get();
-    final count = vouchersList.where((v) => v.voucherType == _invoiceType).length + 1;
     final prefix = _invoiceType == 'Sales' ? 'INV' : 'PUR';
-    final invNo = '$prefix-${DateTime.now().year}-${count.toString().padLeft(4, '0')}';
+    final invNo = '$prefix-${DateTime.now().year}-Auto';
 
     setState(() {
       _contactLedgers = contactLedgers;
@@ -206,19 +230,24 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     return _rows.fold(0.0, (sum, row) => sum + row.total);
   }
 
+  double get _taxableAmount {
+    final sub = _subtotal;
+    if (_discountAmount >= sub) return 0.0;
+    return sub - _discountAmount;
+  }
+
   double get _cgst {
-    return _subtotal * (_taxRatePercent / 2) / 100;
+    return _taxableAmount * (_taxRatePercent / 2) / 100;
   }
 
   double get _sgst {
-    return _subtotal * (_taxRatePercent / 2) / 100;
+    return _taxableAmount * (_taxRatePercent / 2) / 100;
   }
 
   double get _grandTotal {
-    return _subtotal + _cgst + _sgst;
+    return _taxableAmount + _cgst + _sgst;
   }
 
-  // Find stock quantity left for an item
   double _getStockQuantity(String itemId) {
     final match = _allStockStatus.where((status) => status.id == itemId);
     if (match.isNotEmpty) {
@@ -227,8 +256,49 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     return 0.0;
   }
 
-  // Handle saving the voucher
-  Future<void> _submitInvoice({bool andPrint = false}) async {
+  InvoiceViewModel _buildCurrentInvoiceViewModel(String voucherNo) {
+    final contact = _contactLedgers.firstWhere(
+      (l) => l.id == _selectedLedgerId,
+      orElse: () => Ledger(
+        id: _selectedLedgerId ?? '',
+        name: 'Walk-in Party',
+        groupId: _invoiceType == 'Sales' ? 'debtors' : 'creditors',
+        openingBalance: 0.0,
+        updatedAt: DateTime.now(),
+        isSynced: false,
+        isDeleted: false,
+      ),
+    );
+
+    final validRows = _rows.where((r) => r.item != null && r.quantity > 0).toList();
+    final fy = FinancialYearService.getFinancialYear(_invoiceDate);
+
+    return InvoiceViewModel(
+      voucherNumber: voucherNo,
+      voucherType: _invoiceType,
+      financialYear: fy,
+      date: _invoiceDate,
+      partyName: contact.name,
+      partyAddress: contact.address ?? '',
+      partyTaxNumber: contact.taxNumber ?? '',
+      partyPhone: contact.phone,
+      items: validRows.map((r) => InvoiceItemRow(
+        itemName: r.item!.name,
+        quantity: r.quantity,
+        rate: r.rate,
+        amount: r.total,
+        isReplacement: r.isReplacement,
+      )).toList(),
+      subtotal: _subtotal,
+      discount: _discountAmount,
+      cgst: _cgst,
+      sgst: _sgst,
+      grandTotal: _grandTotal,
+      narration: _narration,
+    );
+  }
+
+  Future<void> _previewInvoice() async {
     if (_selectedLedgerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a Customer or Supplier ledger.')),
@@ -236,44 +306,78 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       return;
     }
 
-    if (_rows.any((row) => row.item == null || row.quantity <= 0 || row.rate <= 0)) {
+    final validRows = _rows.where((row) => row.item != null && row.quantity > 0).toList();
+    if (validRows.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all item rows with valid items, quantities, and rates.')),
+        const SnackBar(content: Text('Please add at least one line item with valid quantity.')),
       );
       return;
     }
 
     final db = Provider.of<AppDatabase>(context, listen: false);
+    final viewModel = _buildCurrentInvoiceViewModel(_invoiceNumber.isNotEmpty ? _invoiceNumber : 'PREVIEW');
+    await PrintPreviewDialog.show(context, db: db, invoice: viewModel);
+  }
+
+  Future<void> _submitInvoice({bool andPrint = false}) async {
+    if (_isSubmitting) return;
+
+    if (_selectedLedgerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a Customer or Supplier ledger.')),
+      );
+      return;
+    }
+
+    final validRows = _rows.where((row) => row.item != null && row.quantity > 0).toList();
+    if (validRows.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add at least one line item with valid quantity.')),
+      );
+      return;
+    }
+
+    for (final row in validRows) {
+      if (!row.isReplacement && row.rate <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please enter a valid rate for ${row.item!.name} or mark as Replacement.')),
+        );
+        return;
+      }
+    }
+
+    setState(() => _isSubmitting = true);
+
+    final db = Provider.of<AppDatabase>(context, listen: false);
     final engine = Provider.of<AccountingEngine>(context, listen: false);
 
-    // 1. Detect if any rate is overridden (Sales price change logic)
+    // Check price overrides for non-replacement items
     List<StockItem> itemsToUpdate = [];
-    for (final row in _rows) {
-      if (row.rate != row.originalRate) {
+    for (final row in validRows) {
+      if (!row.isReplacement && row.rate != row.originalRate) {
         itemsToUpdate.add(row.item!);
       }
     }
 
-    // 2. If price changed, prompt user for confirmation to update default catalog price
     bool confirmedPriceUpdates = false;
     if (itemsToUpdate.isNotEmpty) {
       final confirm = await showDialog<bool>(
         context: context,
         builder: (context) {
           return AlertDialog(
-            backgroundColor: const Color(0xFF1E2235),
-            title: const Text('Price Overrides Detected', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            backgroundColor: AppColors.surface,
+            title: const Text('Price Overrides Detected', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
             content: Text(
               'You have modified standard prices for ${itemsToUpdate.length} item(s).\n\nDo you want to update their default catalog rates in inventory for future invoices?',
-              style: const TextStyle(color: Colors.white70),
+              style: const TextStyle(color: AppColors.textSecondary),
             ),
             actions: [
               TextButton(
-                child: const Text('Keep Old Rates', style: TextStyle(color: Colors.white54)),
+                child: const Text('Keep Old Rates', style: TextStyle(color: AppColors.textMuted)),
                 onPressed: () => Navigator.pop(context, false),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.indigoAccent),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
                 child: const Text('Update Rates', style: TextStyle(color: Colors.white)),
                 onPressed: () => Navigator.pop(context, true),
               ),
@@ -284,10 +388,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       confirmedPriceUpdates = confirm ?? false;
     }
 
-    // 3. Process database updates for overridden rates
     if (confirmedPriceUpdates) {
-      for (final row in _rows) {
-        if (row.rate != row.originalRate) {
+      for (final row in validRows) {
+        if (!row.isReplacement && row.rate != row.originalRate) {
           final updatedItem = row.item!;
           if (_invoiceType == 'Sales') {
             await (db.update(db.stockItems)..where((t) => t.id.equals(updatedItem.id)))
@@ -300,8 +403,8 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       }
     }
 
-    // 4. Formulate Double-Entry ledger postings
-    final subtotal = _subtotal;
+    // Formulate Double-Entry ledger postings
+    final taxable = _taxableAmount;
     final cgst = _cgst;
     final sgst = _sgst;
     final grandTotal = _grandTotal;
@@ -309,14 +412,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     List<VoucherEntriesCompanion> entries = [];
     
     if (_invoiceType == 'Sales') {
-      // Sales Double Entry:
-      // Debit: Customer Ledger (Grand Total)
-      // Credit: Sales Ledger (Subtotal)
-      // Credit: CGST Ledger (CGST)
-      // Credit: SGST Ledger (SGST)
       entries.add(VoucherEntriesCompanion.insert(
         id: uuid.v4(),
-        voucherId: '', // Set by engine transaction
+        voucherId: '',
         ledgerId: _selectedLedgerId!,
         debitAmount: drift.Value(grandTotal),
         creditAmount: const drift.Value(0.0),
@@ -327,7 +425,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         voucherId: '',
         ledgerId: 'sales',
         debitAmount: const drift.Value(0.0),
-        creditAmount: drift.Value(subtotal),
+        creditAmount: drift.Value(taxable),
       ));
 
       if (cgst > 0) {
@@ -350,16 +448,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         ));
       }
     } else {
-      // Purchase Double Entry:
-      // Debit: Purchase Ledger (Subtotal)
-      // Debit: CGST Ledger (CGST)
-      // Debit: SGST Ledger (SGST)
-      // Credit: Supplier Ledger (Grand Total)
       entries.add(VoucherEntriesCompanion.insert(
         id: uuid.v4(),
         voucherId: '',
         ledgerId: 'purchase',
-        debitAmount: drift.Value(subtotal),
+        debitAmount: drift.Value(taxable),
         creditAmount: const drift.Value(0.0),
       ));
 
@@ -392,27 +485,28 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       ));
     }
 
-    // 5. Formulate Stock transactions (Inventory adjustments)
+    // Formulate Stock transactions
     List<StockTransactionsCompanion> stockTxs = [];
-    for (final row in _rows) {
+    for (final row in validRows) {
       stockTxs.add(StockTransactionsCompanion.insert(
         id: uuid.v4(),
         voucherId: '',
         stockItemId: row.item!.id,
-        quantity: row.quantity, // quantity is positive
+        quantity: row.quantity,
         rate: row.rate,
         transactionType: _invoiceType == 'Sales' ? 'OUT' : 'IN',
+        isReplacement: drift.Value(row.isReplacement),
       ));
     }
 
     try {
-      // Create voucher using engine
-      await engine.createVoucher(
-        voucherNumber: _invoiceNumber,
+      final savedVoucherNo = await engine.createVoucher(
+        voucherNumber: widget.existingVoucher != null ? _invoiceNumber : null,
         voucherType: _invoiceType,
         date: _invoiceDate,
         narration: _narration,
         referenceNumber: _referenceNumber,
+        discountAmount: _discountAmount,
         entries: entries,
         stockTransactions: stockTxs,
         existingVoucherId: widget.existingVoucher?.id,
@@ -420,34 +514,20 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
 
       if (mounted) {
         if (andPrint) {
-          final contact = _contactLedgers.firstWhere((l) => l.id == _selectedLedgerId);
-          final oldInvoiceNumber = _invoiceNumber;
-          final oldInvoiceType = _invoiceType;
-          final oldInvoiceDate = _invoiceDate;
-          final oldRows = List<InvoiceRowItem>.from(_rows);
-          final oldSubtotal = subtotal;
-          final oldCgst = cgst;
-          final oldSgst = sgst;
-          final oldGrandTotal = grandTotal;
-          final oldNarration = _narration;
-          
+          final viewModel = _buildCurrentInvoiceViewModel(savedVoucherNo);
           await InvoicePrinter.printInvoice(
             context: context,
-            voucherNumber: oldInvoiceNumber,
-            voucherType: oldInvoiceType,
-            date: oldInvoiceDate,
-            contact: contact,
-            rows: oldRows,
-            subtotal: oldSubtotal,
-            cgst: oldCgst,
-            sgst: oldSgst,
-            grandTotal: oldGrandTotal,
-            narration: oldNarration,
+            db: db,
+            invoice: viewModel,
+            paperSize: _selectedPaperSize,
           );
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$_invoiceType Invoice $_invoiceNumber saved successfully!')),
+          SnackBar(
+            backgroundColor: AppColors.success,
+            content: Text('$_invoiceType Invoice $savedVoucherNo saved successfully!'),
+          ),
         );
         if (widget.existingVoucher != null) {
           Navigator.pop(context);
@@ -457,6 +537,8 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             _selectedLedgerId = null;
             _narration = '';
             _referenceNumber = '';
+            _discountAmount = 0.0;
+            _discountController.text = '0.00';
           });
           _loadInitialData();
         }
@@ -464,7 +546,105 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save invoice: $e')),
+          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to save invoice: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  Future<void> _cancelBill() async {
+    if (widget.existingVoucher == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Cancel Invoice', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Are you sure you want to cancel invoice ${_invoiceNumber}?\n\n'
+          'This will mark the bill as CANCELLED, remove its impact from customer balances, and safely restore stock quantities.',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Keep Active', style: TextStyle(color: AppColors.textMuted)),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
+            child: const Text('Cancel Invoice', style: TextStyle(color: Colors.white)),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    try {
+      final engine = Provider.of<AccountingEngine>(context, listen: false);
+      await engine.cancelVoucher(widget.existingVoucher!.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: AppColors.warning, content: Text('Invoice $_invoiceNumber has been cancelled.')),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to cancel invoice: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteBill() async {
+    if (widget.existingVoucher == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Invoice Permanently', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Are you sure you want to PERMANENTLY DELETE invoice ${_invoiceNumber}?\n\n'
+          'This will completely remove the bill, its ledger entries, and its stock adjustments from the database. This action cannot be undone.',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Delete Permanently', style: TextStyle(color: Colors.white)),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    try {
+      final engine = Provider.of<AccountingEngine>(context, listen: false);
+      await engine.deleteVoucher(widget.existingVoucher!.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: AppColors.error, content: Text('Invoice $_invoiceNumber deleted permanently.')),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to delete invoice: $e')),
         );
       }
     }
@@ -473,17 +653,31 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF161928),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: Text(
-          'New $_invoiceType Bill / Invoice',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          widget.existingVoucher != null ? 'Edit $_invoiceType Bill / Invoice' : 'New $_invoiceType Bill / Invoice',
+          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
         ),
+        actions: [
+          if (widget.existingVoucher != null) ...[
+            TextButton.icon(
+              icon: const Icon(Icons.block_rounded, color: AppColors.warning, size: 18),
+              label: const Text('Cancel Bill', style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.w600)),
+              onPressed: _cancelBill,
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              icon: const Icon(Icons.delete_forever_rounded, color: AppColors.error, size: 18),
+              label: const Text('Delete Bill', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
+              onPressed: _deleteBill,
+            ),
+            const SizedBox(width: 16),
+          ],
+        ],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(20.0),
         child: Form(
           key: _formKey,
           child: Column(
@@ -491,11 +685,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             children: [
               // Header Details Card
               _buildHeaderCard(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               // Invoice Rows Header
               _buildRowsHeader(),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
 
               // Invoice Rows List
               Expanded(
@@ -505,19 +699,18 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 ),
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               // Add row button
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white.withOpacity(0.05),
-                  foregroundColor: Colors.indigoAccent,
-                  elevation: 0,
-                  side: const BorderSide(color: Colors.indigoAccent, width: 1),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primaryLight),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Line Item'),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add Line Item', style: TextStyle(fontWeight: FontWeight.bold)),
                 onPressed: () {
                   setState(() {
                     _rows.add(InvoiceRowItem());
@@ -525,7 +718,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 },
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               // Footer Card
               _buildFooterCard(),
@@ -538,11 +731,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
 
   Widget _buildHeaderCard() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2235),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.04)),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         children: [
@@ -552,12 +745,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   value: _invoiceType,
-                  dropdownColor: const Color(0xFF1E2235),
-                  style: const TextStyle(color: Colors.white),
+                  dropdownColor: AppColors.surface,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                   decoration: const InputDecoration(
                     labelText: 'Voucher Type',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    isDense: true,
                   ),
                   items: const [
                     DropdownMenuItem(value: 'Sales', child: Text('Sales Invoice')),
@@ -566,31 +758,30 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                   onChanged: widget.existingVoucher != null ? null : _onInvoiceTypeChanged,
                 ),
               ),
-              const SizedBox(width: 24),
+              const SizedBox(width: 16),
               // Invoice Number
               Expanded(
                 child: TextFormField(
                   key: ValueKey(_invoiceNumber),
                   initialValue: _invoiceNumber,
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                   decoration: const InputDecoration(
                     labelText: 'Voucher / Invoice No.',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    isDense: true,
                   ),
                   onChanged: (val) => _invoiceNumber = val,
                 ),
               ),
-              const SizedBox(width: 24),
+              const SizedBox(width: 16),
               // Date picker field
               Expanded(
                 child: TextFormField(
                   readOnly: true,
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                   decoration: const InputDecoration(
-                    labelText: 'Date',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    labelText: 'Date & Time',
+                    suffixIcon: Icon(Icons.calendar_today_rounded, size: 18, color: AppColors.textSecondary),
+                    isDense: true,
                   ),
                   controller: TextEditingController(
                     text: DateFormat('dd-MMM-yyyy hh:mm a').format(_invoiceDate),
@@ -600,7 +791,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                       context: context,
                       initialDate: _invoiceDate,
                       firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
+                      lastDate: DateTime(2035),
                     );
                     if (picked != null) {
                       final now = DateTime.now();
@@ -620,38 +811,42 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Row(
             children: [
               // Contact Ledger selector (Customers / Suppliers)
               Expanded(
                 child: DropdownButtonFormField<String>(
                   value: _selectedLedgerId,
-                  dropdownColor: const Color(0xFF1E2235),
-                  style: const TextStyle(color: Colors.white),
+                  dropdownColor: AppColors.surface,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
                     labelText: _invoiceType == 'Sales' ? 'Customer / Sundry Debtor' : 'Supplier / Sundry Creditor',
-                    labelStyle: const TextStyle(color: Colors.white70),
-                    enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    isDense: true,
                   ),
                   items: _contactLedgers.map((l) {
                     return DropdownMenuItem(
                       value: l.id,
-                      child: Text(l.name),
+                      child: Text(
+                        l.name + (l.isDeleted ? ' (Deactivated)' : ''),
+                        style: TextStyle(
+                          color: l.isDeleted ? AppColors.textMuted : AppColors.textPrimary,
+                        ),
+                      ),
                     );
                   }).toList(),
                   onChanged: (val) => setState(() => _selectedLedgerId = val),
                 ),
               ),
-              const SizedBox(width: 24),
+              const SizedBox(width: 16),
               // Reference Number
               Expanded(
                 child: TextFormField(
-                  style: const TextStyle(color: Colors.white),
+                  initialValue: _referenceNumber,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                   decoration: const InputDecoration(
-                    labelText: 'Reference Number / LPO No.',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    labelText: 'Reference / Purchase Order / LPO No.',
+                    isDense: true,
                   ),
                   onChanged: (val) => _referenceNumber = val,
                 ),
@@ -667,15 +862,21 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2235),
+        color: AppColors.surfaceSecondary,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
       ),
       child: const Row(
         children: [
-          Expanded(flex: 5, child: Text('Stock Item Description (Matches Name & Shows Qty)', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-          Expanded(flex: 2, child: Text('Quantity', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-          Expanded(flex: 2, child: Text('Rate', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-          Expanded(flex: 2, child: Text('Total Amount', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
+          Expanded(flex: 5, child: Text('Stock Item Description & Stock', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+          SizedBox(width: 12),
+          SizedBox(width: 110, child: Text('Type', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('Quantity', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('Rate (₹)', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('Total (₹)', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
           SizedBox(width: 40),
         ],
       ),
@@ -686,12 +887,12 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     final row = _rows[index];
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2235).withOpacity(0.3),
+        color: row.isReplacement ? AppColors.warningBg.withOpacity(0.3) : AppColors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.02)),
+        border: Border.all(color: row.isReplacement ? AppColors.warning.withOpacity(0.5) : AppColors.border),
       ),
       child: Row(
         children: [
@@ -704,10 +905,10 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 if (textEditingValue.text.isEmpty) {
                   return _allItems;
                 }
-                // Spell matching / Substring search
+                final query = textEditingValue.text.toLowerCase();
                 return _allItems.where((item) {
-                  return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase()) ||
-                      (item.sku != null && item.sku!.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                  return item.name.toLowerCase().contains(query) ||
+                      (item.sku != null && item.sku!.toLowerCase().contains(query));
                 });
               },
               displayStringForOption: (StockItem option) => option.name,
@@ -718,11 +919,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 return TextField(
                   controller: controller,
                   focusNode: focusNode,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                   decoration: const InputDecoration(
-                    hintText: 'Type item name...',
-                    hintStyle: TextStyle(color: Colors.white30),
-                    border: InputBorder.none,
+                    hintText: 'Type item name or SKU...',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   ),
                   onSubmitted: (val) {
                     if (row.item != null) {
@@ -739,20 +940,20 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 return Align(
                   alignment: Alignment.topLeft,
                   child: Material(
-                    elevation: 4.0,
-                    color: const Color(0xFF1E2235),
+                    elevation: 6.0,
+                    color: AppColors.surface,
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      constraints: const BoxConstraints(maxWidth: 450, maxHeight: 280),
+                      constraints: const BoxConstraints(maxWidth: 480, maxHeight: 280),
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        border: Border.all(color: AppColors.border),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: ListView.separated(
                         padding: EdgeInsets.zero,
                         shrinkWrap: true,
                         itemCount: options.length,
-                        separatorBuilder: (context, index) => const Divider(color: Colors.white10, height: 1),
+                        separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 1),
                         itemBuilder: (BuildContext context, int index) {
                           final option = options.elementAt(index);
                           final stockQty = _getStockQuantity(option.id);
@@ -760,19 +961,19 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
 
                           return ListTile(
                             dense: true,
-                            hoverColor: Colors.white.withOpacity(0.05),
-                            title: Text(option.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            subtitle: Text('Std Rate: ${_currencyFormat.format(stdRate)}', style: const TextStyle(color: Colors.white54)),
+                            hoverColor: AppColors.surfaceSecondary,
+                            title: Text(option.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
+                            subtitle: Text('Std Rate: ${_currencyFormat.format(stdRate)}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                             trailing: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: stockQty <= 0 ? Colors.redAccent.withOpacity(0.1) : Colors.greenAccent.withOpacity(0.1),
+                                color: stockQty <= 0 ? AppColors.errorBg : AppColors.successBg,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 'Stock: ${stockQty.toStringAsFixed(0)} ${option.unitOfMeasure}',
                                 style: TextStyle(
-                                  color: stockQty <= 0 ? Colors.redAccent : Colors.greenAccent,
+                                  color: stockQty <= 0 ? AppColors.error : AppColors.success,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 11,
                                 ),
@@ -791,9 +992,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               onSelected: (StockItem selection) {
                 setState(() {
                   row.item = selection;
-                  row.rate = _invoiceType == 'Sales' ? selection.salesRate : selection.purchaseRate;
-                  row.originalRate = row.rate;
-                  row.rateController.text = row.rate > 0 ? row.rate.toString() : '';
+                  row.originalRate = _invoiceType == 'Sales' ? selection.salesRate : selection.purchaseRate;
+                  if (row.isReplacement) {
+                    row.rate = 0.0;
+                    row.rateController.text = '0.00';
+                  } else {
+                    row.rate = row.originalRate;
+                    row.rateController.text = row.rate > 0 ? row.rate.toString() : '';
+                  }
                   row.quantity = 0.0;
                   row.qtyController.text = '';
                 });
@@ -802,6 +1008,50 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             ),
           ),
           
+          const SizedBox(width: 12),
+
+          // Replacement Toggle Button
+          SizedBox(
+            width: 110,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                setState(() {
+                  row.toggleReplacement(!row.isReplacement);
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                decoration: BoxDecoration(
+                  color: row.isReplacement ? AppColors.warningBg : AppColors.surfaceSecondary,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: row.isReplacement ? AppColors.warning : AppColors.border),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      row.isReplacement ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                      size: 14,
+                      color: row.isReplacement ? AppColors.warning : AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      row.isReplacement ? 'Replace (₹0)' : 'Standard',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: row.isReplacement ? AppColors.warning : AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
           // 2. Quantity field
           Expanded(
             flex: 2,
@@ -830,27 +1080,39 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               child: TextFormField(
                 controller: row.qtyController,
                 focusNode: row.qtyFocusNode,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                keyboardType: TextInputType.number,
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(border: InputBorder.none, hintText: '0.00'),
+                decoration: const InputDecoration(
+                  hintText: '0.00',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                ),
                 onChanged: (val) {
                   setState(() {
                     row.quantity = double.tryParse(val) ?? 0.0;
                   });
                 },
                 onFieldSubmitted: (val) {
-                  row.rateFocusNode.requestFocus();
+                  if (row.isReplacement) {
+                    // For replacement, rate is locked to 0, advance to next row or add row
+                    _advanceRow(index);
+                  } else {
+                    row.rateFocusNode.requestFocus();
+                  }
                 },
               ),
             ),
           ),
+
+          const SizedBox(width: 12),
 
           // 3. Rate field
           Expanded(
             flex: 2,
             child: Focus(
               onKeyEvent: (FocusNode node, KeyEvent event) {
+                if (row.isReplacement) return KeyEventResult.ignored;
                 if (event is KeyDownEvent) {
                   if (event.logicalKey == LogicalKeyboardKey.backspace) {
                     if (!row.isEditingRate) {
@@ -872,39 +1134,48 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 return KeyEventResult.ignored;
               },
               child: TextFormField(
-                key: ValueKey('rate-${index}-${row.item?.id}'),
+                key: ValueKey('rate-${index}-${row.item?.id}-${row.isReplacement}'),
                 controller: row.rateController,
                 focusNode: row.rateFocusNode,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(border: InputBorder.none, hintText: '0.00'),
+                readOnly: row.isReplacement,
+                style: TextStyle(
+                  color: row.isReplacement ? AppColors.textMuted : AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: row.isReplacement ? FontWeight.bold : FontWeight.normal,
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: '0.00',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  fillColor: row.isReplacement ? AppColors.surfaceSecondary : AppColors.surface,
+                ),
                 onChanged: (val) {
-                  setState(() {
-                    row.rate = double.tryParse(val) ?? 0.0;
-                  });
+                  if (!row.isReplacement) {
+                    setState(() {
+                      row.rate = double.tryParse(val) ?? 0.0;
+                    });
+                  }
                 },
                 onFieldSubmitted: (val) {
-                  if (index == _rows.length - 1) {
-                    setState(() {
-                      _rows.add(InvoiceRowItem());
-                    });
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _rows.last.itemFocusNode.requestFocus();
-                    });
-                  } else {
-                    _rows[index + 1].itemFocusNode.requestFocus();
-                  }
+                  _advanceRow(index);
                 },
               ),
             ),
           ),
+
+          const SizedBox(width: 12),
 
           // 4. Total Display
           Expanded(
             flex: 2,
             child: Text(
               _currencyFormat.format(row.total),
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+              style: TextStyle(
+                color: row.isReplacement ? AppColors.warning : AppColors.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
             ),
           ),
 
@@ -912,7 +1183,8 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
           SizedBox(
             width: 40,
             child: IconButton(
-              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+              icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
+              tooltip: 'Remove Row',
               onPressed: () {
                 setState(() {
                   final removedRow = _rows.removeAt(index);
@@ -929,13 +1201,26 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     );
   }
 
+  void _advanceRow(int index) {
+    if (index == _rows.length - 1) {
+      setState(() {
+        _rows.add(InvoiceRowItem());
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _rows.last.itemFocusNode.requestFocus();
+      });
+    } else {
+      _rows[index + 1].itemFocusNode.requestFocus();
+    }
+  }
+
   Widget _buildFooterCard() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2235),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.04)),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -943,17 +1228,52 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
           // Left column: Narration
           Expanded(
             flex: 3,
-            child: TextFormField(
-              focusNode: _narrationFocusNode,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Narration / Remarks',
-                labelStyle: TextStyle(color: Colors.white70),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.indigoAccent)),
-              ),
-              onChanged: (val) => _narration = val,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  focusNode: _narrationFocusNode,
+                  initialValue: _narration,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Narration / Remarks / Notes',
+                    hintText: 'Enter any payment terms or notes for the invoice...',
+                  ),
+                  onChanged: (val) => _narration = val,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Text('Paper Size:', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSecondary,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<PrinterPaperSize>(
+                          value: _selectedPaperSize,
+                          dropdownColor: AppColors.surface,
+                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
+                          icon: const Icon(Icons.arrow_drop_down, color: AppColors.primary, size: 18),
+                          items: const [
+                            DropdownMenuItem(value: PrinterPaperSize.a4, child: Text('A4 Standard Print / PDF')),
+                            DropdownMenuItem(value: PrinterPaperSize.thermal58mm, child: Text('58mm Thermal Receipt (POS)')),
+                            DropdownMenuItem(value: PrinterPaperSize.thermal80mm, child: Text('80mm Thermal Receipt (POS)')),
+                          ],
+                          onChanged: _isSubmitting ? null : (val) {
+                            if (val != null) setState(() => _selectedPaperSize = val);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           
@@ -965,6 +1285,44 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             child: Column(
               children: [
                 _buildSummaryRow('Subtotal', _subtotal),
+                const SizedBox(height: 8),
+
+                // Discount field
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Bill Discount (₹):',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    SizedBox(
+                      width: 120,
+                      height: 32,
+                      child: TextFormField(
+                        controller: _discountController,
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.right,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          hintText: '0.00',
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            _discountAmount = double.tryParse(val) ?? 0.0;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                if (_discountAmount > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildSummaryRow('Taxable Amount', _taxableAmount, valueColor: AppColors.primary),
+                ],
+
                 if (_cgst > 0) ...[
                   const SizedBox(height: 6),
                   _buildSummaryRow('CGST (9%)', _cgst),
@@ -973,34 +1331,55 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                   const SizedBox(height: 6),
                   _buildSummaryRow('SGST (9%)', _sgst),
                 ],
-                const Divider(color: Colors.white10, height: 16),
-                _buildSummaryRow('Grand Total', _grandTotal, isBold: true, valueColor: Colors.greenAccent),
-                const SizedBox(height: 20),
+                const Divider(color: AppColors.border, height: 16),
+                _buildSummaryRow('Grand Total', _grandTotal, isBold: true, valueColor: AppColors.success),
+                const SizedBox(height: 16),
+
+                // Action buttons
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[800],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.borderStrong),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      icon: const Icon(Icons.save_rounded),
-                      label: const Text('Save Bill', style: TextStyle(fontWeight: FontWeight.bold)),
-                      onPressed: () => _submitInvoice(andPrint: false),
+                      icon: const Icon(Icons.preview_rounded, size: 16),
+                      label: const Text('Preview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: _isSubmitting ? null : _previewInvoice,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigoAccent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        backgroundColor: AppColors.surfaceSecondary,
+                        foregroundColor: AppColors.textPrimary,
+                        elevation: 0,
+                        side: const BorderSide(color: AppColors.borderStrong),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      icon: const Icon(Icons.print_rounded),
-                      label: const Text('Save & Print Invoice', style: TextStyle(fontWeight: FontWeight.bold)),
-                      onPressed: () => _submitInvoice(andPrint: true),
+                      icon: _isSubmitting 
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+                          : const Icon(Icons.save_outlined, size: 16),
+                      label: const Text('Save', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: _isSubmitting ? null : () => _submitInvoice(andPrint: false),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: _isSubmitting 
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.print_rounded, size: 16),
+                      label: const Text('Save & Print', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: _isSubmitting ? null : () => _submitInvoice(andPrint: true),
                     ),
                   ],
                 ),
@@ -1019,7 +1398,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         Text(
           label,
           style: TextStyle(
-            color: isBold ? Colors.white : Colors.white70,
+            color: isBold ? AppColors.textPrimary : AppColors.textSecondary,
             fontSize: isBold ? 14 : 13,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
           ),
@@ -1027,9 +1406,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         Text(
           _currencyFormat.format(amount),
           style: TextStyle(
-            color: valueColor ?? (isBold ? Colors.white : Colors.white70),
+            color: valueColor ?? (isBold ? AppColors.textPrimary : AppColors.textSecondary),
             fontSize: isBold ? 16 : 13,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
           ),
         ),
       ],

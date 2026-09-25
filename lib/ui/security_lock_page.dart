@@ -119,8 +119,8 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFF161928),
-        body: Center(child: CircularProgressIndicator(color: Colors.indigoAccent)),
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF1E40AF))),
       );
     }
 
@@ -140,21 +140,21 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF161928),
+      backgroundColor: const Color(0xFFF8FAFC),
       body: Center(
         child: SingleChildScrollView(
           child: Container(
             width: 380,
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E2235),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withOpacity(0.04)),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 )
               ],
             ),
@@ -165,30 +165,30 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.indigoAccent.withOpacity(0.1),
+                    color: const Color(0xFFEFF6FF),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.lock_person_rounded,
-                    color: Colors.indigoAccent,
-                    size: 40,
+                    color: Color(0xFF1E40AF),
+                    size: 36,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 
                 // Titles
                 Text(
                   titleText,
-                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   subtitleText,
-                  style: const TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.4),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
                 // Pad circles
                 Row(
@@ -197,37 +197,37 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
                     final isFilled = index < _enteredDigits.length;
                     return Container(
                       margin: const EdgeInsets.symmetric(horizontal: 10),
-                      width: 16,
-                      height: 16,
+                      width: 14,
+                      height: 14,
                       decoration: BoxDecoration(
-                        color: isFilled ? Colors.indigoAccent : Colors.transparent,
+                        color: isFilled ? const Color(0xFF1E40AF) : Colors.transparent,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: isFilled ? Colors.indigoAccent : Colors.white24,
+                          color: isFilled ? const Color(0xFF1E40AF) : const Color(0xFFCBD5E1),
                           width: 2,
                         ),
                       ),
                     );
                   }),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // Error Message
                 if (_errorMessage.isNotEmpty)
                   Text(
                     _errorMessage,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13, fontWeight: FontWeight.w500),
                     textAlign: TextAlign.center,
                   ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // Visual Keypad
                 GridView.count(
                   shrinkWrap: true,
                   crossAxisCount: 3,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1.3,
+                  mainAxisSpacing: 14,
+                  crossAxisSpacing: 14,
+                  childAspectRatio: 1.35,
                   children: [
                     for (int i = 1; i <= 9; i++) _buildKeyButton(i),
                     // Backspace
@@ -235,7 +235,7 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
                     // Zero
                     _buildKeyButton(0),
                     // Check / Submit
-                    _buildIconButton(Icons.check_circle_rounded, _submitPin, color: Colors.greenAccent),
+                    _buildIconButton(Icons.check_circle_rounded, _submitPin, color: const Color(0xFF059669)),
                   ],
                 ),
               ],
@@ -249,29 +249,35 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
   Widget _buildKeyButton(int number) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF161928),
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: const Color(0xFFF1F5F9),
+        foregroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
         elevation: 0,
       ),
       onPressed: () => _onKeyPress(number),
       child: Text(
         '$number',
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
       ),
     );
   }
 
-  Widget _buildIconButton(IconData icon, VoidCallback action, {Color color = Colors.white54}) {
+  Widget _buildIconButton(IconData icon, VoidCallback action, {Color color = const Color(0xFF64748B)}) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF161928),
+        backgroundColor: const Color(0xFFF1F5F9),
         foregroundColor: color,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
         elevation: 0,
       ),
       onPressed: action,
-      child: Icon(icon, size: 22),
+      child: Icon(icon, size: 20),
     );
   }
 }

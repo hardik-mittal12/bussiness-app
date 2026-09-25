@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'data/database.dart';
 import 'core/accounting_engine.dart';
+import 'core/audit_log_service.dart';
+import 'core/backup_service.dart';
+import 'core/database_diagnostic_service.dart';
+import 'core/business_profile_service.dart';
+import 'core/data_exchange_service.dart';
+import 'core/pdf_export_service.dart';
+import 'ui/theme/app_theme.dart';
 import 'ui/widgets/sidebar.dart';
 import 'ui/dashboard_page.dart';
 import 'ui/ledger_list_page.dart';
@@ -18,12 +25,24 @@ void main() async {
   
   final database = AppDatabase();
   final engine = AccountingEngine(database);
+  final auditLog = AuditLogService(database);
+  final backupService = BackupService(database, auditLogService: auditLog);
+  final diagnosticService = DatabaseDiagnosticService(database, backupService);
+  final profileService = BusinessProfileService(database);
+  final pdfService = PdfExportService(database);
+  final exchangeService = DataExchangeService(database);
 
   runApp(
     MultiProvider(
       providers: [
         Provider<AppDatabase>.value(value: database),
         Provider<AccountingEngine>.value(value: engine),
+        Provider<AuditLogService>.value(value: auditLog),
+        Provider<BackupService>.value(value: backupService),
+        Provider<DatabaseDiagnosticService>.value(value: diagnosticService),
+        Provider<BusinessProfileService>.value(value: profileService),
+        Provider<PdfExportService>.value(value: pdfService),
+        Provider<DataExchangeService>.value(value: exchangeService),
       ],
       child: const MyApp(),
     ),
@@ -38,19 +57,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Tally Ledger Pro',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: Colors.indigoAccent,
-        colorScheme: ColorScheme.dark(
-          primary: Colors.indigoAccent,
-          secondary: Colors.purpleAccent,
-          surface: const Color(0xFF1E2235),
-          error: Colors.redAccent,
-        ),
-        scaffoldBackgroundColor: const Color(0xFF161928),
-        useMaterial3: true,
-        fontFamily: 'Segoe UI', // Clean, professional sans-serif on Windows/macOS
-      ),
+      theme: AppTheme.lightTheme,
       home: const SecurityLockPage(),
     );
   }
@@ -108,12 +115,10 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     return Scaffold(
       body: Row(
         children: [
-          // Sidebar Left
           Sidebar(
             currentIndex: _currentIndex,
             onTap: _onNavigate,
           ),
-          // Active screen right
           Expanded(
             child: activePage,
           ),

@@ -1,4 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../core/business_profile_service.dart';
+import '../../data/database.dart';
+import '../theme/app_theme.dart';
 
 class Sidebar extends StatelessWidget {
   final int currentIndex;
@@ -12,8 +17,6 @@ class Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
     final menuItems = [
       _SidebarItem(Icons.dashboard_rounded, 'Dashboard'),
       _SidebarItem(Icons.people_rounded, 'Ledgers & Accounts'),
@@ -27,11 +30,11 @@ class Sidebar extends StatelessWidget {
 
     return Container(
       width: 260,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E2235), // Sleek deep slate dark theme
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
         border: Border(
           right: BorderSide(
-            color: Colors.white.withOpacity(0.08),
+            color: AppColors.border,
             width: 1,
           ),
         ),
@@ -39,63 +42,82 @@ class Sidebar extends StatelessWidget {
       child: Column(
         children: [
           // Logo & Branding
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: Colors.white.withOpacity(0.05),
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.indigoAccent, Colors.purpleAccent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+          FutureBuilder<BusinessProfile>(
+            future: BusinessProfileService(Provider.of<AppDatabase>(context, listen: false)).getProfile(),
+            builder: (context, snapshot) {
+              final profile = snapshot.data;
+              final logoPath = profile?.logoPath;
+              final hasLogo = logoPath != null && File(logoPath).existsSync();
+              final companyName = (profile?.companyName != null && profile!.companyName.isNotEmpty)
+                  ? profile.companyName
+                  : 'TALLY LEDGER';
+
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: AppColors.border,
+                      width: 1,
                     ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_wallet_rounded,
-                    color: Colors.white,
-                    size: 28,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    const Text(
-                      'TALLY LEDGER',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        letterSpacing: 1.2,
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: hasLogo ? Colors.transparent : AppColors.primary,
+                        borderRadius: BorderRadius.circular(8),
+                        border: hasLogo ? Border.all(color: AppColors.border) : null,
                       ),
+                      child: hasLogo
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(File(logoPath), fit: BoxFit.contain),
+                            )
+                          : const Icon(
+                              Icons.account_balance_wallet_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
                     ),
-                    Text(
-                      'PRO EDITION v1.0',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                        letterSpacing: 0.8,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            companyName.toUpperCase(),
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              letterSpacing: 0.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const Text(
+                            'PRO EDITION v1.1',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 10,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           
           // Menu Items
           Expanded(
@@ -106,42 +128,34 @@ class Sidebar extends StatelessWidget {
                 final isSelected = index == currentIndex;
                 
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                   child: InkWell(
                     onTap: () => onTap(index),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? Colors.indigoAccent.withOpacity(0.15)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
+                        color: isSelected ? AppColors.primaryBackground : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
                         border: isSelected
-                            ? Border.all(
-                                color: Colors.indigoAccent.withOpacity(0.3),
-                                width: 1,
-                              )
-                            : Border.all(
-                                color: Colors.transparent,
-                                width: 1,
-                              ),
+                            ? Border.all(color: const Color(0xFFBFDBFE), width: 1)
+                            : Border.all(color: Colors.transparent, width: 1),
                       ),
                       child: Row(
                         children: [
                           Icon(
                             item.icon,
-                            color: isSelected ? Colors.indigoAccent : Colors.white70,
-                            size: 22,
+                            color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                            size: 20,
                           ),
-                          const SizedBox(width: 14),
+                          const SizedBox(width: 12),
                           Text(
                             item.label,
                             style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.white70,
+                              color: isSelected ? AppColors.primary : AppColors.textPrimary,
                               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                              fontSize: 14,
+                              fontSize: 13.5,
                             ),
                           ),
                         ],
@@ -153,14 +167,14 @@ class Sidebar extends StatelessWidget {
             ),
           ),
 
-          // User / DB Sync status
+          // Database Status
           Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF161928),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceSecondary,
               border: Border(
                 top: BorderSide(
-                  color: Colors.white.withOpacity(0.05),
+                  color: AppColors.border,
                   width: 1,
                 ),
               ),
@@ -168,28 +182,28 @@ class Sidebar extends StatelessWidget {
             child: Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: Colors.greenAccent.withOpacity(0.1),
-                  radius: 8,
+                  backgroundColor: AppColors.success.withValues(alpha: 0.15),
+                  radius: 7,
                   child: const CircleAvatar(
-                    backgroundColor: Colors.greenAccent,
-                    radius: 4,
+                    backgroundColor: AppColors.success,
+                    radius: 3.5,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Offline Database Active',
+                    'Local DB Active',
                     style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
                 const Icon(
-                  Icons.sync_rounded,
-                  color: Colors.white30,
-                  size: 16,
+                  Icons.lock_outline_rounded,
+                  color: AppColors.textMuted,
+                  size: 14,
                 ),
               ],
             ),

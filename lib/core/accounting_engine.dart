@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 import '../data/database.dart';
 import 'package:uuid/uuid.dart';
+import 'financial_year_service.dart';
+import 'money_precision.dart';
 
 class LedgerStatementRow {
   final String voucherId;
@@ -11,6 +13,10 @@ class LedgerStatementRow {
   final double debit;
   final double credit;
   final double runningBalance;
+
+  double get debitAmount => debit;
+  double get creditAmount => credit;
+  String get voucherNumber => voucherNo;
 
   LedgerStatementRow({
     required this.voucherId,
@@ -103,117 +109,292 @@ class BalanceSheetReport {
   });
 }
 
+class DayBookRow {
+  final String voucherId;
+  final String voucherNumber;
+  final String voucherType;
+  final DateTime date;
+  final String narration;
+  final double totalAmount;
+
+  DayBookRow({
+    required this.voucherId,
+    required this.voucherNumber,
+    required this.voucherType,
+    required this.date,
+    required this.narration,
+    required this.totalAmount,
+  });
+}
+
+class InsufficientStockException implements Exception {
+  final String message;
+  InsufficientStockException(this.message);
+  @override
+  String toString() => message;
+}
+
 class AccountingEngine {
   final AppDatabase db;
   final Uuid uuid = const Uuid();
+  bool _isSubmitting = false;
 
   AccountingEngine(this.db);
 
-  // 1. Create a double-entry voucher
-  Future<void> createVoucher({
-    required String voucherNumber,
+  /// Check if a voucher submission is currently in progress
+  bool get isSubmitting => _isSubmitting;
+
+  // 1. Transactional Sequence Reservation inside SQLite Transaction
+  Future<String> reserveNextInvoiceNumberInTx(String voucherType, DateTime date) async {
+    final financialYear = FinancialYearService.getFinancialYear(date);
+    final seqId = FinancialYearService.getSequenceId(financialYear, voucherType);
+    final prefix = voucherType == 'Sales' ? 'INV' : (voucherType == 'Purchase' ? 'PUR' : voucherType.substring(0, 3).toUpperCase());
+
+    final existingSeq = await (db.select(db.invoiceSequences)..where((t) => t.id.equals(seqId))).getSingleOrNull();
+
+    int currentNext = 1;
+    if (existingSeq != null) {
+      currentNext = existingSeq.nextNumber;
+      await (db.update(db.invoiceSequences)..where((t) => t.id.equals(seqId))).write(
+        InvoiceSequencesCompanion(nextNumber: Value(currentNext + 1)),
+      );
+    } else {
+      await db.into(db.invoiceSequences).insert(
+        InvoiceSequencesCompanion.insert(
+          id: seqId,
+          financialYear: financialYear,
+          voucherType: voucherType,
+          nextNumber: const Value(2),
+        ),
+      );
+    }
+
+    return '$prefix-$financialYear-${currentNext.toString().padLeft(4, '0')}';
+  }
+
+  // 2. Create or Update a Double-Entry Voucher (100% Atomic Transaction)
+  Future<String> createVoucher({
+    String? voucherNumber,
     required String voucherType, // 'Sales', 'Purchase', 'Receipt', 'Payment', 'Journal', 'Contra'
     required DateTime date,
     String? narration,
     String? referenceNumber,
+    double? discountAmount,
     required List<VoucherEntriesCompanion> entries,
     List<StockTransactionsCompanion>? stockTransactions,
     String? existingVoucherId,
+    bool allowNegativeStock = false,
   }) async {
-    // Validate double entry (Total Debits == Total Credits)
-    double totalDebit = 0;
-    double totalCredit = 0;
-    for (final entry in entries) {
-      totalDebit += entry.debitAmount.value;
-      totalCredit += entry.creditAmount.value;
+    if (_isSubmitting) {
+      throw Exception('Voucher submission is already in progress. Please wait.');
     }
+    _isSubmitting = true;
 
-    // Rounding safety check (e.g. within 0.01 margin)
-    if ((totalDebit - totalCredit).abs() > 0.01) {
-      throw Exception('Double-entry validation failed: Total Debits (\$$totalDebit) must equal Total Credits (\$$totalCredit)');
-    }
+    try {
+      // Validate double entry (Total Debits == Total Credits using exact minor units)
+      int totalDebitPaise = 0;
+      int totalCreditPaise = 0;
+      for (final entry in entries) {
+        final d = entry.debitAmount.present ? entry.debitAmount.value : 0.0;
+        final c = entry.creditAmount.present ? entry.creditAmount.value : 0.0;
+        totalDebitPaise += MoneyPrecision.toPaise(d);
+        totalCreditPaise += MoneyPrecision.toPaise(c);
+      }
 
-    await db.transaction(() async {
-      final voucherId = existingVoucherId ?? uuid.v4();
-      
-      if (existingVoucherId != null) {
-        // Update existing voucher
-        await (db.update(db.vouchers)..where((t) => t.id.equals(existingVoucherId))).write(
-          VouchersCompanion(
-            voucherNumber: Value(voucherNumber),
-            voucherType: Value(voucherType),
-            date: Value(date),
-            narration: Value(narration),
-            referenceNumber: Value(referenceNumber),
-            updatedAt: Value(DateTime.now()),
-            isSynced: const Value(false),
-          ),
+      if (totalDebitPaise != totalCreditPaise) {
+        throw Exception(
+          'Double-entry validation failed: Total Debits (${MoneyPrecision.toRupees(totalDebitPaise)}) must equal Total Credits (${MoneyPrecision.toRupees(totalCreditPaise)})',
         );
-        // Wipe old splits and stock transactions
-        await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(existingVoucherId))).go();
-        await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(existingVoucherId))).go();
-      } else {
-        // Insert new voucher header
-        await db.into(db.vouchers).insert(VouchersCompanion.insert(
-              id: voucherId,
-              voucherNumber: voucherNumber,
-              voucherType: voucherType,
-              date: date,
+      }
+
+      final financialYear = FinancialYearService.getFinancialYear(date);
+      String finalVoucherNumber = voucherNumber ?? '';
+
+      await db.transaction(() async {
+        final voucherId = existingVoucherId ?? uuid.v4();
+
+        // If new voucher and no voucherNumber provided, reserve transactionally
+        if (existingVoucherId == null && finalVoucherNumber.isEmpty) {
+          finalVoucherNumber = await reserveNextInvoiceNumberInTx(voucherType, date);
+        }
+
+        // Stock Level Validation inside Transaction (Atomic)
+        if (stockTransactions != null && !allowNegativeStock) {
+          for (final st in stockTransactions) {
+            final type = st.transactionType.present ? st.transactionType.value : 'OUT';
+            if (type == 'OUT') {
+              final itemId = st.stockItemId.present ? st.stockItemId.value : '';
+              final reqQty = st.quantity.present ? st.quantity.value : 0.0;
+              if (itemId.isNotEmpty && reqQty > 0) {
+                final stockSummary = await getStockSummaryForItem(itemId);
+                if (stockSummary.quantity < reqQty) {
+                  throw InsufficientStockException(
+                    'Insufficient stock for "${stockSummary.name}": Available ${stockSummary.quantity}, Required $reqQty',
+                  );
+                }
+              }
+            }
+          }
+        }
+
+        if (existingVoucherId != null) {
+          // Update existing voucher
+          await (db.update(db.vouchers)..where((t) => t.id.equals(existingVoucherId))).write(
+            VouchersCompanion(
+              voucherNumber: Value(finalVoucherNumber),
+              voucherType: Value(voucherType),
+              financialYear: Value(financialYear),
+              date: Value(date),
               narration: Value(narration),
               referenceNumber: Value(referenceNumber),
+              discountAmount: Value(discountAmount ?? 0.0),
               updatedAt: Value(DateTime.now()),
               isSynced: const Value(false),
-            ));
-      }
+            ),
+          );
+          // Wipe old splits and stock transactions
+          await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(existingVoucherId))).go();
+          await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(existingVoucherId))).go();
+        } else {
+          // Insert new voucher header
+          await db.into(db.vouchers).insert(VouchersCompanion.insert(
+                id: voucherId,
+                voucherNumber: finalVoucherNumber,
+                voucherType: voucherType,
+                financialYear: Value(financialYear),
+                date: date,
+                narration: Value(narration),
+                referenceNumber: Value(referenceNumber),
+                discountAmount: Value(discountAmount ?? 0.0),
+                status: const Value('POSTED'),
+                updatedAt: Value(DateTime.now()),
+                isSynced: const Value(false),
+              ));
+        }
 
-      // Insert Entries
-      for (final entry in entries) {
-        final entryWithVoucher = entry.copyWith(
-          id: Value(uuid.v4()),
-          voucherId: Value(voucherId),
-        );
-        await db.into(db.voucherEntries).insert(entryWithVoucher);
-      }
-
-      // Insert Stock Transactions (if any)
-      if (stockTransactions != null) {
-        for (final st in stockTransactions) {
-          final stWithVoucher = st.copyWith(
+        // Insert Entries (inside transaction)
+        for (final entry in entries) {
+          final entryWithVoucher = entry.copyWith(
             id: Value(uuid.v4()),
             voucherId: Value(voucherId),
           );
-          await db.into(db.stockTransactions).insert(stWithVoucher);
+          await db.into(db.voucherEntries).insert(entryWithVoucher);
         }
+
+        // Insert Stock Transactions (if any, inside transaction)
+        if (stockTransactions != null) {
+          for (final st in stockTransactions) {
+            final stWithVoucher = st.copyWith(
+              id: Value(uuid.v4()),
+              voucherId: Value(voucherId),
+            );
+            await db.into(db.stockTransactions).insert(stWithVoucher);
+          }
+        }
+      }); // end db.transaction
+
+      return finalVoucherNumber;
+    } finally {
+      _isSubmitting = false;
+    }
+  }
+
+  // 3. Cancel Voucher (Preserves accounting history, stock safely restored)
+  Future<void> cancelVoucher(String voucherId) async {
+    await db.transaction(() async {
+      await (db.update(db.vouchers)..where((t) => t.id.equals(voucherId))).write(
+        VouchersCompanion(
+          status: const Value('CANCELLED'),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+    });
+  }
+
+  // 3b. Delete Voucher (Permanently wipes voucher, entries, and stock)
+  Future<void> deleteVoucher(String voucherId) async {
+    await db.transaction(() async {
+      await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(voucherId))).go();
+      await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(voucherId))).go();
+      await (db.delete(db.vouchers)..where((t) => t.id.equals(voucherId))).go();
+    });
+  }
+
+  // Payment & Receipt management shortcuts
+  Future<void> cancelPayment(String voucherId) => cancelVoucher(voucherId);
+  Future<void> deletePayment(String voucherId) => deleteVoucher(voucherId);
+  Future<void> cancelReceipt(String voucherId) => cancelVoucher(voucherId);
+  Future<void> deleteReceipt(String voucherId) => deleteVoucher(voucherId);
+
+  // Customer / Ledger deletion with transaction preservation
+  Future<bool> hasCustomerTransactions(String ledgerId) async {
+    final count = await (db.select(db.voucherEntries)..where((t) => t.ledgerId.equals(ledgerId))).get();
+    return count.isNotEmpty;
+  }
+
+  Future<bool> deleteCustomer(String ledgerId) async {
+    return await db.transaction(() async {
+      final hasTx = await hasCustomerTransactions(ledgerId);
+      if (hasTx) {
+        // Soft-delete / deactivate customer to safely preserve transaction history
+        await (db.update(db.ledgers)..where((t) => t.id.equals(ledgerId))).write(
+          const LedgersCompanion(isDeleted: Value(true)),
+        );
+        return false; // Soft-deleted / deactivated
+      } else {
+        // Safe to hard-delete
+        await (db.delete(db.ledgers)..where((t) => t.id.equals(ledgerId))).go();
+        return true; // Permanently deleted
       }
     });
   }
 
-  // 2. Compute Ledger Balance dynamically
-  Future<double> getLedgerBalance(String ledgerId) async {
-    final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(ledgerId))).getSingle();
-    
-    final query = db.select(db.voucherEntries)..where((t) => t.ledgerId.equals(ledgerId));
-    final entries = await query.get();
+  // Data Reset: Reset business transactions while preserving company profile & logo
+  Future<void> resetBusinessData({bool keepMasters = true}) async {
+    await db.transaction(() async {
+      await db.delete(db.stockTransactions).go();
+      await db.delete(db.voucherEntries).go();
+      await db.delete(db.vouchers).go();
+      await db.delete(db.invoiceSequences).go();
+      await db.delete(db.auditLogs).go();
 
-    double totalDebit = 0;
-    double totalCredit = 0;
-    for (final entry in entries) {
-      totalDebit += entry.debitAmount;
-      totalCredit += entry.creditAmount;
-    }
-
-    // Check account type via group to determine if debit or credit heavy
-    // For simplicity, Net Debit = OpeningBalance + Debits - Credits
-    return ledger.openingBalance + totalDebit - totalCredit;
+      if (!keepMasters) {
+        await db.delete(db.stockItems).go();
+        const standardLedgerIds = {'cash', 'profit_loss', 'sales', 'purchase', 'cgst', 'sgst'};
+        await (db.delete(db.ledgers)..where((t) => t.id.isNotIn(standardLedgerIds))).go();
+      }
+      // Business profiles and syncMetadata remain 100% intact!
+    });
   }
 
-  // 3. Get Ledger Statement
+  // 4. Compute Ledger Balance via direct SQL aggregation
+  Future<double> getLedgerBalance(String ledgerId) async {
+    final res = await db.customSelect(
+      'SELECT l.opening_balance + '
+      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
+      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
+      'FROM ledgers l '
+      'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
+      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = "POSTED") '
+      'WHERE l.id = ? '
+      'GROUP BY l.id;',
+      variables: [Variable.withString(ledgerId)],
+    ).getSingleOrNull();
+
+    if (res == null) return 0.0;
+    return (res.data['net_balance'] as num).toDouble();
+  }
+
+  // 5. Get Ledger Statement
   Future<List<LedgerStatementRow>> getLedgerStatement(String ledgerId) async {
     final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(ledgerId))).getSingle();
 
     final query = db.select(db.voucherEntries).join([
       innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.voucherEntries.voucherId)),
-    ])..where(db.voucherEntries.ledgerId.equals(ledgerId));
+    ])..where(
+      db.voucherEntries.ledgerId.equals(ledgerId) &
+      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
+    );
     
     query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
     
@@ -243,105 +424,151 @@ class AccountingEngine {
     return statement;
   }
 
-  // 4. Calculate Inventory Stock Levels and Average Cost Valuations
+  // 6. Calculate Stock Level for single item
+  Future<StockStatus> getStockSummaryForItem(String stockItemId) async {
+    final item = await (db.select(db.stockItems)..where((t) => t.id.equals(stockItemId))).getSingle();
+    final query = db.select(db.stockTransactions).join([
+      innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.stockTransactions.voucherId)),
+    ])..where(
+      db.stockTransactions.stockItemId.equals(stockItemId) &
+      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
+    );
+    query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
+    final txs = await query.get();
+
+    double currentQty = item.openingQuantity;
+    double avgCost = item.openingRate;
+    double totalValue = currentQty * avgCost;
+
+    for (final row in txs) {
+      final tx = row.readTable(db.stockTransactions);
+      if (tx.transactionType == 'IN') {
+        final double newQty = currentQty + tx.quantity;
+        if (newQty > 0) {
+          avgCost = (totalValue + (tx.quantity * tx.rate)) / newQty;
+        } else {
+          avgCost = tx.rate;
+        }
+        currentQty = newQty;
+        totalValue = currentQty * avgCost;
+      } else {
+        currentQty = currentQty - tx.quantity;
+        totalValue = currentQty * avgCost;
+      }
+    }
+
+    return StockStatus(
+      id: item.id,
+      name: item.name,
+      quantity: currentQty,
+      averageRate: avgCost,
+      totalValue: totalValue,
+    );
+  }
+
+  // 7. Calculate Inventory Stock Levels across catalog
   Future<List<StockStatus>> getStockSummary() async {
     final items = await db.select(db.stockItems).get();
     List<StockStatus> summary = [];
 
     for (final item in items) {
-      final query = db.select(db.stockTransactions).join([
-        innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.stockTransactions.voucherId)),
-      ])..where(db.stockTransactions.stockItemId.equals(item.id));
-      query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
-      final txs = await query.get();
-
-      double currentQty = item.openingQuantity;
-      double avgCost = item.openingRate;
-      double totalValue = currentQty * avgCost;
-
-      for (final row in txs) {
-        final tx = row.readTable(db.stockTransactions);
-        
-        if (tx.transactionType == 'IN') {
-          // Purchase increases stock quantity and updates average cost
-          final double newQty = currentQty + tx.quantity;
-          if (newQty > 0) {
-            avgCost = (totalValue + (tx.quantity * tx.rate)) / newQty;
-          } else {
-            avgCost = tx.rate;
-          }
-          currentQty = newQty;
-          totalValue = currentQty * avgCost;
-        } else {
-          // Sale decreases stock quantity, average cost remains the same
-          currentQty = currentQty - tx.quantity; // tx.quantity is positive amount sold
-          totalValue = currentQty * avgCost;
-        }
-      }
-
-      summary.add(StockStatus(
-        id: item.id,
-        name: item.name,
-        quantity: currentQty,
-        averageRate: avgCost,
-        totalValue: totalValue,
-      ));
+      final status = await getStockSummaryForItem(item.id);
+      summary.add(status);
     }
 
     return summary;
   }
 
-  // 5. Generate Trial Balance
+  // 8. Generate Trial Balance using direct SQL aggregation
   Future<List<TrialBalanceRow>> getTrialBalance() async {
-    final ledgersList = await db.select(db.ledgers).join([
-      innerJoin(db.accountGroups, db.accountGroups.id.equalsExp(db.ledgers.groupId))
-    ]).get();
+    final rows = await db.customSelect(
+      'SELECT l.id AS ledger_id, l.name AS ledger_name, g.name AS group_name, '
+      'l.opening_balance + '
+      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
+      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
+      'FROM ledgers l '
+      'JOIN account_groups g ON l.group_id = g.id '
+      'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
+      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = "POSTED") '
+      'GROUP BY l.id, l.name, g.name '
+      'HAVING net_balance != 0.0;'
+    ).get();
 
-    List<TrialBalanceRow> tb = [];
-
-    for (final row in ledgersList) {
-      final ledger = row.readTable(db.ledgers);
-      final group = row.readTable(db.accountGroups);
-
-      final balance = await getLedgerBalance(ledger.id);
-
-      if (balance == 0.0) continue;
-
-      if (balance > 0) {
-        tb.add(TrialBalanceRow(
-          ledgerId: ledger.id,
-          ledgerName: ledger.name,
-          groupName: group.name,
-          debitBalance: balance,
-          creditBalance: 0.0,
-        ));
-      } else {
-        tb.add(TrialBalanceRow(
-          ledgerId: ledger.id,
-          ledgerName: ledger.name,
-          groupName: group.name,
-          debitBalance: 0.0,
-          creditBalance: balance.abs(),
-        ));
-      }
-    }
-
-    return tb;
+    return rows.map((r) {
+      final netBal = (r.data['net_balance'] as num).toDouble();
+      return TrialBalanceRow(
+        ledgerId: r.data['ledger_id'] as String,
+        ledgerName: r.data['ledger_name'] as String,
+        groupName: r.data['group_name'] as String,
+        debitBalance: netBal > 0 ? netBal : 0.0,
+        creditBalance: netBal < 0 ? netBal.abs() : 0.0,
+      );
+    }).toList();
   }
 
-  // 6. Generate Profit & Loss Report
+  // 9. Day Book with SQL Join and Keyset/Limit Pagination
+  Future<List<DayBookRow>> getDayBook({
+    int limit = 50,
+    int offset = 0,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? voucherType,
+  }) async {
+    String whereClause = "WHERE (v.status IS NULL OR v.status = 'POSTED')";
+    List<Variable> vars = [];
+
+    if (startDate != null) {
+      whereClause += " AND v.date >= ?";
+      vars.add(Variable.withDateTime(startDate));
+    }
+    if (endDate != null) {
+      whereClause += " AND v.date <= ?";
+      vars.add(Variable.withDateTime(endDate));
+    }
+    if (voucherType != null && voucherType.isNotEmpty && voucherType != 'All') {
+      whereClause += " AND v.voucher_type = ?";
+      vars.add(Variable.withString(voucherType));
+    }
+
+    vars.add(Variable.withInt(limit));
+    vars.add(Variable.withInt(offset));
+
+    final queryStr = '''
+      WITH paged_vouchers AS (
+        SELECT v.id, v.voucher_number, v.voucher_type, v.date, v.narration
+        FROM vouchers v
+        $whereClause
+        ORDER BY v.date DESC, v.voucher_number DESC
+        LIMIT ? OFFSET ?
+      )
+      SELECT pv.id AS voucher_id, pv.voucher_number, pv.voucher_type, pv.date, pv.narration,
+             COALESCE(SUM(ve.debit_amount), 0.0) AS total_amount
+      FROM paged_vouchers pv
+      LEFT JOIN voucher_entries ve ON ve.voucher_id = pv.id
+      GROUP BY pv.id, pv.voucher_number, pv.voucher_type, pv.date, pv.narration
+      ORDER BY pv.date DESC, pv.voucher_number DESC;
+    ''';
+
+    final rows = await db.customSelect(queryStr, variables: vars).get();
+    return rows.map((r) => DayBookRow(
+      voucherId: r.data['voucher_id'] as String,
+      voucherNumber: r.data['voucher_number'] as String,
+      voucherType: r.data['voucher_type'] as String,
+      date: DateTime.parse(r.data['date'].toString()),
+      narration: r.data['narration'] as String? ?? '',
+      totalAmount: (r.data['total_amount'] as num).toDouble(),
+    )).toList();
+  }
+
+  // 10. Generate Profit & Loss Report
   Future<ProfitLossReport> getProfitLossReport() async {
-    // 6.1 Total Sales (Revenue Accounts group)
-    // Find all ledgers in sales_accounts group
     final salesLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('sales_accounts'))).get();
     double salesVal = 0.0;
     for (final l in salesLedgers) {
-      // Sales has credit balance, getLedgerBalance returns Debit-Credit (which is negative for credit). Sum absolute credit.
       final bal = await getLedgerBalance(l.id);
       if (bal < 0) salesVal += bal.abs();
     }
 
-    // 6.2 Total Purchase (Purchase Accounts group)
     final purchaseLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('purchase_accounts'))).get();
     double purchaseVal = 0.0;
     for (final l in purchaseLedgers) {
@@ -349,7 +576,6 @@ class AccountingEngine {
       if (bal > 0) purchaseVal += bal;
     }
 
-    // 6.3 Expenses
     final directExpLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('direct_expenses'))).get();
     double directExp = 0.0;
     for (final l in directExpLedgers) {
@@ -364,27 +590,20 @@ class AccountingEngine {
       if (bal > 0) indirectExp += bal;
     }
 
-    // 6.4 Opening Stock Value
     final stockItemsList = await db.select(db.stockItems).get();
     double openingStockVal = 0.0;
     for (final item in stockItemsList) {
       openingStockVal += item.openingQuantity * item.openingRate;
     }
 
-    // 6.5 Closing Stock Value
     final stockStatusList = await getStockSummary();
     double closingStockVal = 0.0;
     for (final status in stockStatusList) {
       closingStockVal += status.totalValue;
     }
 
-    // Cost of Goods Sold (COGS) = Opening Stock + Purchase + Direct Expenses - Closing Stock
     final cogs = openingStockVal + purchaseVal + directExp - closingStockVal;
-    
-    // Gross Profit = Sales - COGS
     final grossProfit = salesVal - cogs;
-
-    // Net Profit = Gross Profit - Indirect Expenses
     final netProfit = grossProfit - indirectExp;
 
     return ProfitLossReport(
@@ -399,20 +618,17 @@ class AccountingEngine {
     );
   }
 
-  // 7. Generate Balance Sheet Report
+  // 11. Generate Balance Sheet Report
   Future<BalanceSheetReport> getBalanceSheetReport() async {
-    // 7.1 Capital / Equity balances
     final capitalLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('equity'))).get();
     double capitalBal = 0.0;
     for (final l in capitalLedgers) {
       final bal = await getLedgerBalance(l.id);
-      // Capital is credit balance, get Ledger balance (Credit - Debit). Since balance is Debit - Credit, negate it.
       if (l.id != 'profit_loss') {
         capitalBal += -bal;
       }
     }
 
-    // 7.2 Sundry Creditors (Suppliers)
     final creditorLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('creditors'))).get();
     double creditorsBal = 0.0;
     for (final l in creditorLedgers) {
@@ -420,21 +636,17 @@ class AccountingEngine {
       if (bal < 0) creditorsBal += bal.abs();
     }
 
-    // 7.3 Duties and Taxes (Liabilities)
     final taxLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('duties_taxes'))).get();
     double taxesBal = 0.0;
     for (final l in taxLedgers) {
       final bal = await getLedgerBalance(l.id);
       if (bal < 0) taxesBal += bal.abs();
     }
-    double totalLiabilities = taxesBal; // other liability groups can be added
+    double totalLiabilities = taxesBal;
 
-    // 7.4 Net Profit Surplus from P&L
     final plReport = await getProfitLossReport();
     final netProfitSurplus = plReport.netProfit;
 
-    // 7.5 Assets
-    // Cash in hand
     final cashLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('cash_in_hand'))).get();
     double cashBal = 0.0;
     for (final l in cashLedgersList) {
@@ -442,7 +654,6 @@ class AccountingEngine {
       if (bal > 0) cashBal += bal;
     }
 
-    // Bank Accounts
     final bankLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('bank_accounts'))).get();
     double bankBal = 0.0;
     for (final l in bankLedgersList) {
@@ -450,7 +661,6 @@ class AccountingEngine {
       if (bal > 0) bankBal += bal;
     }
 
-    // Sundry Debtors (Customers)
     final debtorLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors'))).get();
     double debtorsBal = 0.0;
     for (final l in debtorLedgersList) {
@@ -458,9 +668,7 @@ class AccountingEngine {
       if (bal > 0) debtorsBal += bal;
     }
 
-    // Closing Stock
     final closingStockVal = plReport.closingStockValue;
-
     final totalAssets = cashBal + bankBal + debtorsBal + closingStockVal;
 
     return BalanceSheetReport(
@@ -476,14 +684,13 @@ class AccountingEngine {
     );
   }
 
-  // 12. Fetch complete details for a specific voucher (including items and contact details)
+  // 12. Fetch complete details for a specific voucher
   Future<VoucherDetail?> getVoucherDetail(String voucherId) async {
     final voucher = await (db.select(db.vouchers)..where((t) => t.id.equals(voucherId))).getSingleOrNull();
     if (voucher == null) return null;
 
     final entries = await (db.select(db.voucherEntries)..where((t) => t.voucherId.equals(voucherId))).get();
     
-    // Find the customer or supplier contact ledger
     Ledger? contactLedger;
     for (final entry in entries) {
       final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(entry.ledgerId))).getSingleOrNull();
@@ -493,7 +700,6 @@ class AccountingEngine {
       }
     }
     
-    // Fallback to first ledger if none found
     if (contactLedger == null && entries.isNotEmpty) {
       contactLedger = await (db.select(db.ledgers)..where((t) => t.id.equals(entries.first.ledgerId))).getSingleOrNull();
     }
@@ -505,9 +711,9 @@ class AccountingEngine {
       openingBalance: 0.0,
       updatedAt: DateTime.now(),
       isSynced: false,
+      isDeleted: false,
     );
 
-    // Load stock transactions and join with stock items to show names
     final query = db.select(db.stockTransactions).join([
       innerJoin(db.stockItems, db.stockItems.id.equalsExp(db.stockTransactions.stockItemId)),
     ])..where(db.stockTransactions.voucherId.equals(voucherId));
@@ -528,7 +734,6 @@ class AccountingEngine {
   }
 }
 
-// Helper Class definitions for Voucher Drill-downs
 class StockTransactionWithItem {
   final StockTransaction tx;
   final String itemName;

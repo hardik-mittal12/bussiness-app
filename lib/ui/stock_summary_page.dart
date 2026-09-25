@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:printing/printing.dart';
 import '../core/accounting_engine.dart';
+import '../core/pdf_export_service.dart';
 import '../data/database.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'theme/app_theme.dart';
 
 class StockSummaryPage extends StatefulWidget {
   const StockSummaryPage({super.key});
@@ -48,112 +51,67 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E2235),
-          title: const Text('Add Stock Item', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text('Add Stock Item', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
           content: SizedBox(
-            width: 500,
+            width: 480,
             child: Form(
               key: formKey,
               child: SingleChildScrollView(
                 child: Column(
                   children: [
-                    // Item Name
                     TextFormField(
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Stock Item Name',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Stock Item Name *'),
                       validator: (val) => val == null || val.trim().isEmpty ? 'Please enter item name' : null,
                       onSaved: (val) => name = val!.trim(),
                     ),
                     const SizedBox(height: 12),
-
-                    // SKU
                     TextFormField(
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'SKU / Part Number',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'SKU / Part Number'),
                       onSaved: (val) => sku = val?.trim() ?? '',
                     ),
                     const SizedBox(height: 12),
-
-                    // Unit of Measure
                     TextFormField(
                       initialValue: 'PCS',
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Unit of Measure (e.g. PCS, KGS, LTRS, BOX)',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Unit of Measure (PCS, KGS, etc.)'),
                       onSaved: (val) => unit = val?.trim() ?? 'PCS',
                     ),
                     const SizedBox(height: 12),
-
                     Row(
                       children: [
-                        // Opening Quantity
                         Expanded(
                           child: TextFormField(
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Opening Qty',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Opening Quantity'),
                             onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        // Opening Rate
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Opening Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Opening Rate (₹)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-
                     Row(
                       children: [
-                        // Standard Purchase Rate
                         Expanded(
                           child: TextFormField(
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Purchase Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Purchase Rate (₹)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        // Standard Sales Rate
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Sales Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Sales Rate (₹)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -166,35 +124,38 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
           ),
           actions: [
             TextButton(
-              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
               onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigoAccent),
-              child: const Text('Save Item', style: TextStyle(color: Colors.white)),
+              child: const Text('Save Item'),
               onPressed: () async {
                 if (formKey.currentState!.validate()) {
                   formKey.currentState!.save();
-
-                  await db.into(db.stockItems).insert(StockItemsCompanion.insert(
-                        id: uuid.v4(),
-                        name: name,
-                        sku: drift.Value(sku.isNotEmpty ? sku : null),
-                        unitOfMeasure: drift.Value(unit),
-                        openingQuantity: drift.Value(openingQty),
-                        openingRate: drift.Value(openingRate),
-                        purchaseRate: drift.Value(purchaseRate),
-                        salesRate: drift.Value(salesRate),
-                        updatedAt: drift.Value(DateTime.now()),
-                        isSynced: const drift.Value(false),
-                      ));
-
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    _refresh();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Stock item "$name" added successfully.')),
-                    );
+                  try {
+                    await db.into(db.stockItems).insert(StockItemsCompanion.insert(
+                          id: uuid.v4(),
+                          name: name,
+                          sku: drift.Value(sku.isNotEmpty ? sku : null),
+                          unitOfMeasure: drift.Value(unit.isNotEmpty ? unit : 'PCS'),
+                          openingQuantity: drift.Value(openingQty),
+                          openingRate: drift.Value(openingRate),
+                          purchaseRate: drift.Value(purchaseRate),
+                          salesRate: drift.Value(salesRate),
+                        ));
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      _refresh();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Stock item added successfully')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed: Name must be unique ($e)')),
+                      );
+                    }
                   }
                 }
               },
@@ -225,10 +186,11 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E2235),
-          title: const Text('Edit Stock Item', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text('Edit Stock Item', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
           content: SizedBox(
-            width: 500,
+            width: 480,
             child: Form(
               key: formKey,
               child: SingleChildScrollView(
@@ -236,35 +198,20 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                   children: [
                     TextFormField(
                       initialValue: name,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Stock Item Name',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Stock Item Name *'),
                       validator: (val) => val == null || val.trim().isEmpty ? 'Please enter item name' : null,
                       onSaved: (val) => name = val!.trim(),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       initialValue: sku,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'SKU / Part Number',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'SKU / Part Number'),
                       onSaved: (val) => sku = val?.trim() ?? '',
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       initialValue: unit,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Unit of Measure',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Unit of Measure'),
                       onSaved: (val) => unit = val?.trim() ?? 'PCS',
                     ),
                     const SizedBox(height: 12),
@@ -273,27 +220,17 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: openingQty.toString(),
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Opening Qty',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Opening Qty'),
                             onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             initialValue: openingRate.toString(),
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Opening Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Opening Rate (₹)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -305,27 +242,17 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: purchaseRate.toString(),
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Purchase Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Purchase Rate (₹)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             initialValue: salesRate.toString(),
-                            style: const TextStyle(color: Colors.white),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Sales Rate',
-                              labelStyle: TextStyle(color: Colors.white70),
-                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                            ),
+                            decoration: const InputDecoration(labelText: 'Sales Rate (₹)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -338,28 +265,27 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
           ),
           actions: [
             TextButton(
-              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
               onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigoAccent),
-              child: const Text('Save Changes', style: TextStyle(color: Colors.white)),
+              child: const Text('Save Changes'),
               onPressed: () async {
                 if (formKey.currentState!.validate()) {
                   formKey.currentState!.save();
 
                   await db.update(db.stockItems).replace(StockItem(
-                    id: itemId,
-                    name: name,
-                    sku: sku.isNotEmpty ? sku : null,
-                    unitOfMeasure: unit,
-                    openingQuantity: openingQty,
-                    openingRate: openingRate,
-                    purchaseRate: purchaseRate,
-                    salesRate: salesRate,
-                    updatedAt: DateTime.now(),
-                    isSynced: false,
-                  ));
+                        id: itemId,
+                        name: name,
+                        sku: sku.isNotEmpty ? sku : null,
+                        unitOfMeasure: unit,
+                        openingQuantity: openingQty,
+                        openingRate: openingRate,
+                        purchaseRate: purchaseRate,
+                        salesRate: salesRate,
+                        updatedAt: DateTime.now(),
+                        isSynced: false,
+                      ));
 
                   if (context.mounted) {
                     Navigator.pop(context);
@@ -382,17 +308,18 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E2235),
-          title: const Text('Delete Stock Item?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: Text('Are you sure you want to delete "$itemName"? This action cannot be undone.', style: const TextStyle(color: Colors.white70)),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text('Delete Stock Item?', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+          content: Text('Are you sure you want to delete "$itemName"? This action cannot be undone.', style: const TextStyle(color: AppColors.textSecondary)),
           actions: [
             TextButton(
-              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
               onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-              child: const Text('Delete', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+              child: const Text('Delete Permanently'),
               onPressed: () async {
                 final db = Provider.of<AppDatabase>(context, listen: false);
                 try {
@@ -422,15 +349,36 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final db = Provider.of<AppDatabase>(context, listen: false);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF161928),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Inventory & Stock Summary', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Inventory & Stock Summary', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
         actions: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.picture_as_pdf, color: AppColors.error, size: 18),
+            label: const Text('Export Valuation PDF'),
+            onPressed: () async {
+              try {
+                final pdfService = PdfExportService(db);
+                final bytes = await pdfService.exportInventoryReportPdf();
+                await Printing.layoutPdf(
+                  onLayout: (format) async => bytes,
+                  name: 'Inventory_Valuation_Report.pdf',
+                );
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+                }
+              }
+            },
+          ),
+          const SizedBox(width: 12),
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+            icon: const Icon(Icons.refresh_rounded, color: AppColors.textSecondary),
             onPressed: _refresh,
           ),
           const SizedBox(width: 16),
@@ -440,10 +388,10 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
         future: _stockSummaryFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.indigoAccent));
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Error loading inventory: ${snapshot.error}', style: const TextStyle(color: Colors.redAccent)));
+            return Center(child: Text('Error loading inventory: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
           }
 
           final summary = snapshot.data ?? [];
@@ -454,50 +402,66 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Total Valuation Stat Card
-                Container(
-                  width: 350,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Colors.purpleAccent, Color(0xFF8A2387)]),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Total Stock Valuation (Average Cost)', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                      const SizedBox(height: 8),
-                      Text(
-                        _currencyFormat.format(totalValuation),
-                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                // Total Valuation Stat Card & Actions
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      width: 320,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF1E3A8A), Color(0xFF2563EB)]),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
-                  ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Stock Valuation (Average Cost)', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          const SizedBox(height: 6),
+                          Text(
+                            _currencyFormat.format(totalValuation),
+                            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      ),
+                      icon: const Icon(Icons.add_box_rounded, size: 18),
+                      label: const Text('Add Stock Item'),
+                      onPressed: () => _showAddStockDialog(context),
+                    ),
+                  ],
                 ),
                 
                 const SizedBox(height: 24),
                 
                 const Text(
                   'Item Master Catalog',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
 
                 // Table Header
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF1E2235),
-                    borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSecondary,
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
                   ),
                   child: const Row(
                     children: [
-                      Expanded(flex: 3, child: Text('Item Name', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 2, child: Text('SKU / Code', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 2, child: Text('Stock Quantity', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 2, child: Text('Average Cost', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 2, child: Text('Total Value', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 1, child: Center(child: Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)))),
+                      Expanded(flex: 3, child: Text('Item Name', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+                      Expanded(flex: 2, child: Text('SKU / Code', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+                      Expanded(flex: 2, child: Text('Stock Quantity', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+                      Expanded(flex: 2, child: Text('Average Cost', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+                      Expanded(flex: 2, child: Text('Total Value', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
+                      Expanded(flex: 1, child: Center(child: Text('Actions', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)))),
                     ],
                   ),
                 ),
@@ -507,122 +471,121 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                   child: summary.isEmpty
                       ? Container(
                           width: double.infinity,
-                          color: const Color(0xFF1E2235).withOpacity(0.5),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            border: Border.all(color: AppColors.border),
+                            borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+                          ),
                           alignment: Alignment.center,
-                          child: const Text('No inventory items found. Add items to start catalog.', style: TextStyle(color: Colors.white38)),
+                          child: const Text('No inventory items found. Add items to start catalog.', style: TextStyle(color: AppColors.textMuted)),
                         )
-                      : ListView.builder(
-                          itemCount: summary.length,
-                          itemBuilder: (context, index) {
-                            final item = summary[index];
-                            final isLow = item.quantity <= 5;
+                      : Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            border: Border.all(color: AppColors.border),
+                            borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+                          ),
+                          child: ListView.separated(
+                            itemCount: summary.length,
+                            separatorBuilder: (context, index) => const Divider(color: AppColors.border),
+                            itemBuilder: (context, index) {
+                              final item = summary[index];
+                              final isLow = item.quantity <= 5;
 
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              decoration: BoxDecoration(
-                                color: index % 2 == 0 ? const Color(0xFF1E2235).withOpacity(0.3) : const Color(0xFF1E2235).withOpacity(0.1),
-                                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.03))),
-                              ),
-                              child: Row(
-                                children: [
-                                  // Name
-                                  Expanded(
-                                    flex: 3,
-                                    child: Text(
-                                      item.name,
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                                    ),
-                                  ),
-                                  // SKU
-                                  Expanded(
-                                    flex: 2,
-                                    child: FutureBuilder<StockItem>(
-                                      future: (Provider.of<AppDatabase>(context, listen: false).select(Provider.of<AppDatabase>(context, listen: false).stockItems)..where((t) => t.id.equals(item.id))).getSingle(),
-                                      builder: (context, subSnap) {
-                                        final skuCode = subSnap.data?.sku ?? '-';
-                                        return Text(
-                                          skuCode,
-                                          style: const TextStyle(color: Colors.white54, fontSize: 13),
-                                        );
-                                      }
-                                    ),
-                                  ),
-                                  // Stock Qty
-                                  Expanded(
-                                    flex: 2,
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          item.quantity.toStringAsFixed(2),
-                                          style: TextStyle(
-                                            color: isLow ? Colors.redAccent : Colors.white70,
-                                            fontWeight: isLow ? FontWeight.bold : FontWeight.normal,
-                                            fontSize: 13,
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 3,
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            item.name,
+                                            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
                                           ),
+                                          if (isLow) ...[
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: item.quantity <= 0 ? AppColors.errorBg : AppColors.warningBg,
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                item.quantity <= 0 ? 'Out of Stock' : 'Low Stock',
+                                                style: TextStyle(
+                                                  color: item.quantity <= 0 ? AppColors.error : AppColors.warning,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        item.id.length > 8 ? item.id.substring(0, 8) : item.id,
+                                        style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        item.quantity.toStringAsFixed(2),
+                                        style: TextStyle(
+                                          color: isLow ? AppColors.error : AppColors.textPrimary,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
                                         ),
-                                        if (isLow) ...[
-                                          const SizedBox(width: 6),
-                                          const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 14),
-                                        ]
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                  // Average Rate
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(
-                                      _currencyFormat.format(item.averageRate),
-                                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        _currencyFormat.format(item.averageRate),
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                      ),
                                     ),
-                                  ),
-                                  // Total Value
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(
-                                      _currencyFormat.format(item.totalValue),
-                                      style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        _currencyFormat.format(item.totalValue),
+                                        style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
+                                      ),
                                     ),
-                                  ),
-                                  // Actions Column
-                                  Expanded(
-                                    flex: 1,
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.edit_rounded, color: Colors.blueAccent, size: 16),
-                                          onPressed: () => _showEditStockDialog(context, item.id),
-                                          tooltip: 'Edit Item',
-                                          constraints: const BoxConstraints(),
-                                          padding: EdgeInsets.zero,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        IconButton(
-                                          icon: const Icon(Icons.delete_rounded, color: Colors.redAccent, size: 16),
-                                          onPressed: () => _confirmDeleteStockItem(context, item.id, item.name),
-                                          tooltip: 'Delete Item',
-                                          constraints: const BoxConstraints(),
-                                          padding: EdgeInsets.zero,
-                                        ),
-                                      ],
+                                    Expanded(
+                                      flex: 1,
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.edit_outlined, color: AppColors.primary, size: 18),
+                                            tooltip: 'Edit Item',
+                                            onPressed: () => _showEditStockDialog(context, item.id),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 18),
+                                            tooltip: 'Delete Item',
+                                            onPressed: () => _confirmDeleteStockItem(context, item.id, item.name),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],
             ),
           );
         },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.indigoAccent,
-        icon: const Icon(Icons.add_box_rounded, color: Colors.white),
-        label: const Text('Add Stock Item', style: TextStyle(color: Colors.white)),
-        onPressed: () => _showAddStockDialog(context),
       ),
     );
   }

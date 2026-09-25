@@ -1,0 +1,5 @@
+[autorun]
+open=launch_from_usb.bat
+icon=tally_ledger_desktop\data\flutter_assets\assets\icons\app_icon.ico
+label=Tally Business App (Portable USB)
+action=Launch Tally Business App

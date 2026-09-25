@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/accounting_engine.dart';
-import '../data/database.dart';
 import 'package:intl/intl.dart';
+import 'theme/app_theme.dart';
 
 class DashboardPage extends StatefulWidget {
   final ValueChanged<int> onNavigate;
@@ -49,20 +49,18 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
     return Scaffold(
-      backgroundColor: const Color(0xFF161928), // Sleek body dark background
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
           'Financial Overview Dashboard',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+            icon: const Icon(Icons.refresh_rounded, color: AppColors.textSecondary),
             onPressed: _refresh,
           ),
           const SizedBox(width: 16),
@@ -72,13 +70,13 @@ class _DashboardPageState extends State<DashboardPage> {
         future: _dashboardDataFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.indigoAccent));
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
           }
           if (snapshot.hasError) {
             return Center(
               child: Text(
                 'Error loading dashboard: ${snapshot.error}',
-                style: const TextStyle(color: Colors.redAccent),
+                style: const TextStyle(color: AppColors.error),
               ),
             );
           }
@@ -87,7 +85,6 @@ class _DashboardPageState extends State<DashboardPage> {
           final BalanceSheetReport bs = data['balanceSheet'];
           final ProfitLossReport pl = data['profitLoss'];
           final List<StockStatus> lowStock = data['lowStock'];
-          final List<StockStatus> stock = data['stockSummary'];
 
           final double netCashBank = bs.cashBalance + bs.bankBalance;
 
@@ -106,7 +103,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           amount: netCashBank,
                           icon: Icons.account_balance_rounded,
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF3A47D5), Color(0xFF00D2FF)],
+                            colors: [Color(0xFF1E3A8A), Color(0xFF2563EB)],
                           ),
                         ),
                       ),
@@ -117,7 +114,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           amount: bs.sundryDebtors,
                           icon: Icons.trending_up_rounded,
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF11998e), Color(0xFF38ef7d)],
+                            colors: [Color(0xFF065F46), Color(0xFF059669)],
                           ),
                         ),
                       ),
@@ -128,7 +125,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           amount: bs.sundryCreditors,
                           icon: Icons.trending_down_rounded,
                           gradient: const LinearGradient(
-                            colors: [Color(0xFFeb307a), Color(0xFFfe7a15)],
+                            colors: [Color(0xFF991B1B), Color(0xFFDC2626)],
                           ),
                         ),
                       ),
@@ -147,9 +144,16 @@ class _DashboardPageState extends State<DashboardPage> {
                         child: Container(
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1E2235),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -157,24 +161,24 @@ class _DashboardPageState extends State<DashboardPage> {
                               const Text(
                                 'Performance Summary (This Period)',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.textPrimary,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              _buildRowDetail('Total Sales', pl.salesValue, Colors.greenAccent),
-                              const Divider(color: Colors.white10, height: 20),
-                              _buildRowDetail('Total Purchase', pl.purchaseValue, Colors.orangeAccent),
-                              const Divider(color: Colors.white10, height: 20),
-                              _buildRowDetail('Direct & Indirect Expenses', pl.directExpenses + pl.indirectExpenses, Colors.redAccent),
-                              const Divider(color: Colors.white10, height: 20),
-                              _buildRowDetail('Gross Profit', pl.grossProfit, Colors.tealAccent),
-                              const Divider(color: Colors.white10, height: 20),
+                              _buildRowDetail('Total Sales', pl.salesValue, AppColors.success),
+                              const Divider(color: AppColors.border, height: 20),
+                              _buildRowDetail('Total Purchase', pl.purchaseValue, AppColors.warning),
+                              const Divider(color: AppColors.border, height: 20),
+                              _buildRowDetail('Direct & Indirect Expenses', pl.directExpenses + pl.indirectExpenses, AppColors.error),
+                              const Divider(color: AppColors.border, height: 20),
+                              _buildRowDetail('Gross Profit', pl.grossProfit, const Color(0xFF0D9488)),
+                              const Divider(color: AppColors.border, height: 20),
                               _buildRowDetail(
                                 'Net Profit / Loss',
                                 pl.netProfit,
-                                pl.netProfit >= 0 ? Colors.greenAccent : Colors.redAccent,
+                                pl.netProfit >= 0 ? AppColors.success : AppColors.error,
                                 highlight: true,
                               ),
                             ],
@@ -193,9 +197,16 @@ class _DashboardPageState extends State<DashboardPage> {
                               padding: const EdgeInsets.all(20),
                               width: double.infinity,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF1E2235),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.white.withOpacity(0.05)),
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.border),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.02),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,7 +214,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                   const Text(
                                     'Quick Actions',
                                     style: TextStyle(
-                                      color: Colors.white,
+                                      color: AppColors.textPrimary,
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -212,28 +223,32 @@ class _DashboardPageState extends State<DashboardPage> {
                                   _buildActionButton(
                                     label: 'Create Sale Bill',
                                     icon: Icons.add_shopping_cart_rounded,
-                                    color: Colors.indigoAccent,
+                                    color: const Color(0xFF2563EB),
+                                    bgColor: const Color(0xFFEFF6FF),
                                     onPressed: () => widget.onNavigate(3), // Index 3 is Sales & Purchases
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
                                     label: 'Receive Payment',
                                     icon: Icons.call_received_rounded,
-                                    color: Colors.teal,
+                                    color: const Color(0xFF059669),
+                                    bgColor: const Color(0xFFECFDF5),
                                     onPressed: () => widget.onNavigate(4), // Index 4 is Receipts & Payments
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
                                     label: 'Add Purchase Bill',
                                     icon: Icons.add_box_rounded,
-                                    color: Colors.deepOrangeAccent,
+                                    color: const Color(0xFFD97706),
+                                    bgColor: const Color(0xFFFFFBEB),
                                     onPressed: () => widget.onNavigate(3),
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
                                     label: 'View Balance Sheet',
                                     icon: Icons.account_balance_wallet_rounded,
-                                    color: Colors.purpleAccent,
+                                    color: const Color(0xFF7C3AED),
+                                    bgColor: const Color(0xFFF5F3FF),
                                     onPressed: () => widget.onNavigate(5), // Index 5 is Financial Reports
                                   ),
                                 ],
@@ -252,9 +267,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     padding: const EdgeInsets.all(20),
                     width: double.infinity,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E2235),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,7 +287,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             const Text(
                               'Low Stock Alerts',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -274,12 +296,12 @@ class _DashboardPageState extends State<DashboardPage> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.redAccent.withOpacity(0.15),
+                                  color: AppColors.errorBg,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   '${lowStock.length} Items Low',
-                                  style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(color: AppColors.error, fontSize: 11, fontWeight: FontWeight.bold),
                                 ),
                               ),
                           ],
@@ -290,7 +312,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             padding: EdgeInsets.symmetric(vertical: 12),
                             child: Text(
                               'All stock items are at healthy levels.',
-                              style: TextStyle(color: Colors.white54, fontSize: 13),
+                              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
                             ),
                           )
                         else
@@ -298,7 +320,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: lowStock.length > 5 ? 5 : lowStock.length,
-                            separatorBuilder: (context, index) => const Divider(color: Colors.white12, height: 12),
+                            separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 12),
                             itemBuilder: (context, index) {
                               final item = lowStock[index];
                               return Row(
@@ -306,19 +328,19 @@ class _DashboardPageState extends State<DashboardPage> {
                                 children: [
                                   Text(
                                     item.name,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                    style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500),
                                   ),
                                   Row(
                                     children: [
                                       Text(
-                                        'Qty Left: ${item.quantity.toStringAsFixed(0)} ${item.averageRate > 0 ? '' : ''}',
-                                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                        'Qty Left: ${item.quantity.toStringAsFixed(0)}',
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
                                         '(${item.quantity <= 0 ? "Out of Stock" : "Reorder Soon"})',
                                         style: TextStyle(
-                                          color: item.quantity <= 0 ? Colors.redAccent : Colors.orangeAccent,
+                                          color: item.quantity <= 0 ? AppColors.error : AppColors.warning,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -351,10 +373,10 @@ class _DashboardPageState extends State<DashboardPage> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: gradient,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -367,8 +389,8 @@ class _DashboardPageState extends State<DashboardPage> {
             top: 0,
             child: Icon(
               icon,
-              color: Colors.white.withOpacity(0.15),
-              size: 48,
+              color: Colors.white.withValues(alpha: 0.18),
+              size: 44,
             ),
           ),
           Column(
@@ -377,17 +399,17 @@ class _DashboardPageState extends State<DashboardPage> {
               Text(
                 title,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text(
                 _currencyFormat.format(amount),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -405,9 +427,9 @@ class _DashboardPageState extends State<DashboardPage> {
         Text(
           title,
           style: TextStyle(
-            color: highlight ? Colors.white : Colors.white70,
+            color: highlight ? AppColors.textPrimary : AppColors.textSecondary,
             fontWeight: highlight ? FontWeight.bold : FontWeight.w500,
-            fontSize: highlight ? 15 : 14,
+            fontSize: highlight ? 14.5 : 13.5,
           ),
         ),
         Text(
@@ -415,7 +437,7 @@ class _DashboardPageState extends State<DashboardPage> {
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.bold,
-            fontSize: highlight ? 16 : 14,
+            fontSize: highlight ? 15.5 : 13.5,
           ),
         ),
       ],
@@ -426,19 +448,20 @@ class _DashboardPageState extends State<DashboardPage> {
     required String label,
     required IconData icon,
     required Color color,
+    required Color bgColor,
     required VoidCallback onPressed,
   }) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
         style: ElevatedButton.styleFrom(
-          backgroundColor: color.withOpacity(0.15),
+          backgroundColor: bgColor,
           foregroundColor: color,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: BorderSide(color: color.withOpacity(0.3), width: 1),
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: color.withValues(alpha: 0.25), width: 1),
           ),
         ),
         icon: Icon(icon, size: 18),

@@ -18,6 +18,7 @@ class InvoiceRowItem {
   double originalRate; // To detect price overrides
   bool isReplacement;
 
+  late final TextEditingController itemController;
   late final TextEditingController qtyController;
   late final TextEditingController rateController;
 
@@ -35,6 +36,7 @@ class InvoiceRowItem {
     this.originalRate = 0.0,
     this.isReplacement = false,
   }) {
+    itemController = TextEditingController(text: item?.name ?? '');
     qtyController = TextEditingController(text: quantity > 0 ? quantity.toString() : '');
     rateController = TextEditingController(text: isReplacement ? '0.00' : (rate > 0 ? rate.toString() : ''));
 
@@ -65,6 +67,7 @@ class InvoiceRowItem {
   }
 
   void dispose() {
+    itemController.dispose();
     qtyController.dispose();
     rateController.dispose();
     itemFocusNode.dispose();
@@ -901,6 +904,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             flex: 5,
             child: RawAutocomplete<StockItem>(
               focusNode: row.itemFocusNode,
+              textEditingController: row.itemController,
               optionsBuilder: (TextEditingValue textEditingValue) {
                 if (textEditingValue.text.isEmpty) {
                   return _allItems;
@@ -992,6 +996,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               onSelected: (StockItem selection) {
                 setState(() {
                   row.item = selection;
+                  row.itemController.text = selection.name;
                   row.originalRate = _invoiceType == 'Sales' ? selection.salesRate : selection.purchaseRate;
                   if (row.isReplacement) {
                     row.rate = 0.0;

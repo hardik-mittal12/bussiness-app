@@ -375,7 +375,7 @@ class AccountingEngine {
       'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
       'FROM ledgers l '
       'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = "POSTED") '
+      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
       'WHERE l.id = ? '
       'GROUP BY l.id;',
       variables: [Variable.withString(ledgerId)],
@@ -489,7 +489,7 @@ class AccountingEngine {
       'FROM ledgers l '
       'JOIN account_groups g ON l.group_id = g.id '
       'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = "POSTED") '
+      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
       'GROUP BY l.id, l.name, g.name '
       'HAVING net_balance != 0.0;'
     ).get();

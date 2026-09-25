@@ -7,6 +7,7 @@ import '../core/backup_service.dart';
 import '../core/database_diagnostic_service.dart';
 import '../core/business_profile_service.dart';
 import '../core/accounting_engine.dart';
+import '../core/security_pin_service.dart';
 import 'theme/app_theme.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -28,6 +29,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _termsAndConditions = '';
   String? _logoPath;
   
+  bool _hasSecurityPin = false;
   bool _isLoading = false;
   SystemHealthInfo? _healthInfo;
   DatabaseInvariantReport? _diagnosticReport;
@@ -44,6 +46,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final db = Provider.of<AppDatabase>(context, listen: false);
     final profileService = BusinessProfileService(db);
     final profile = await profileService.getProfile();
+    final pinService = SecurityPinService(db);
+    final hasPin = await pinService.hasPin();
 
     setState(() {
       _companyName = profile.companyName;
@@ -54,6 +58,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _bankDetails = profile.bankDetails ?? '';
       _termsAndConditions = profile.termsAndConditions ?? '';
       _logoPath = profile.logoPath;
+      _hasSecurityPin = hasPin;
     });
   }
 
@@ -78,6 +83,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (result.isNotEmpty && result.first.path != null) {
         final path = result.first.path!;
+        if (!mounted) return;
         final db = Provider.of<AppDatabase>(context, listen: false);
         final profileService = BusinessProfileService(db);
         await profileService.updateLogo(path);
@@ -116,6 +122,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (confirm == true) {
+      if (!mounted) return;
       final db = Provider.of<AppDatabase>(context, listen: false);
       final profileService = BusinessProfileService(db);
       await profileService.updateLogo(null);
@@ -395,6 +402,314 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _promptChangePin() async {
+    final currentPinController = TextEditingController();
+    final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
+    String dialogError = '';
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: Row(
+              children: [
+                const Icon(Icons.password_rounded, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  _hasSecurityPin ? 'Change Access PIN' : 'Set Up Access PIN',
+                  style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _hasSecurityPin
+                          ? 'Enter your current 4-digit PIN, then enter and confirm your new passcode.'
+                          : 'Enter and confirm a 4-digit passcode to lock the application on startup.',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_hasSecurityPin) ...[
+                      TextField(
+                        controller: currentPinController,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        maxLength: 4,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Current 4-Digit PIN',
+                          counterText: '',
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    TextField(
+                      controller: newPinController,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      autofocus: !_hasSecurityPin,
+                      decoration: const InputDecoration(
+                        labelText: 'New 4-Digit PIN',
+                        counterText: '',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmPinController,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm New 4-Digit PIN',
+                        counterText: '',
+                        isDense: true,
+                      ),
+                    ),
+                    if (dialogError.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.errorBg,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError,
+                                style: const TextStyle(color: AppColors.error, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
+                child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        final currentPin = currentPinController.text.trim();
+                        final newPin = newPinController.text.trim();
+                        final confirmPin = confirmPinController.text.trim();
+
+                        if (_hasSecurityPin && (currentPin.length != 4 || int.tryParse(currentPin) == null)) {
+                          setDialogState(() => dialogError = 'Please enter your current 4-digit PIN.');
+                          return;
+                        }
+                        if (newPin.length != 4 || int.tryParse(newPin) == null) {
+                          setDialogState(() => dialogError = 'New PIN must be exactly 4 digits.');
+                          return;
+                        }
+                        if (newPin != confirmPin) {
+                          setDialogState(() => dialogError = 'New PINs do not match. Please re-enter.');
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isSaving = true;
+                          dialogError = '';
+                        });
+
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final db = Provider.of<AppDatabase>(context, listen: false);
+                          final pinService = SecurityPinService(db);
+
+                          if (_hasSecurityPin) {
+                            final isValid = await pinService.verifyPin(currentPin);
+                            if (!isValid) {
+                              setDialogState(() {
+                                isSaving = false;
+                                dialogError = 'Current PIN is incorrect.';
+                              });
+                              return;
+                            }
+                          }
+
+                          await pinService.setPin(newPin);
+                          if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+
+                          setState(() => _hasSecurityPin = true);
+                          if (mounted) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                backgroundColor: AppColors.success,
+                                content: Text('Security PIN updated successfully.'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            isSaving = false;
+                            dialogError = 'Failed to update PIN: $e';
+                          });
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text(_hasSecurityPin ? 'Update PIN' : 'Save PIN', style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _promptRemovePin() async {
+    final currentPinController = TextEditingController();
+    String dialogError = '';
+    bool isRemoving = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: const Row(
+              children: [
+                Icon(Icons.lock_open_rounded, color: AppColors.warning),
+                SizedBox(width: 8),
+                Text('Disable Access PIN', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Disabling PIN protection means anyone with access to this computer can open the application without a passcode.',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: currentPinController,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 4,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Enter Current 4-Digit PIN to Confirm',
+                      counterText: '',
+                      isDense: true,
+                    ),
+                  ),
+                  if (dialogError.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      dialogError,
+                      style: const TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isRemoving ? null : () => Navigator.pop(dialogCtx),
+                child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.warning,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: isRemoving
+                    ? null
+                    : () async {
+                        final currentPin = currentPinController.text.trim();
+                        if (currentPin.length != 4) {
+                          setDialogState(() => dialogError = 'Please enter your current 4-digit PIN.');
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isRemoving = true;
+                          dialogError = '';
+                        });
+
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final db = Provider.of<AppDatabase>(context, listen: false);
+                          final pinService = SecurityPinService(db);
+                          final isValid = await pinService.verifyPin(currentPin);
+
+                          if (!isValid) {
+                            setDialogState(() {
+                              isRemoving = false;
+                              dialogError = 'Current PIN is incorrect.';
+                            });
+                            return;
+                          }
+
+                          await pinService.removePin();
+                          if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+
+                          setState(() => _hasSecurityPin = false);
+                          if (mounted) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                backgroundColor: AppColors.success,
+                                content: Text('Security PIN removed. Lock screen disabled.'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            isRemoving = false;
+                            dialogError = 'Failed to remove PIN: $e';
+                          });
+                        }
+                      },
+                child: isRemoving
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text('Disable PIN Protection', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -566,6 +881,102 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ],
                             ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Card: Security & Access PIN
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.shield_outlined, color: AppColors.primary),
+                                      SizedBox(width: 8),
+                                      Text('Security & Access Passcode', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+                                    ],
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: _hasSecurityPin ? AppColors.successBg : AppColors.surfaceSecondary,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: _hasSecurityPin ? AppColors.success.withValues(alpha: 0.4) : AppColors.border,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _hasSecurityPin ? Icons.lock_rounded : Icons.lock_open_rounded,
+                                          size: 14,
+                                          color: _hasSecurityPin ? AppColors.success : AppColors.textMuted,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _hasSecurityPin ? 'PIN Protection Active' : 'No PIN Configured',
+                                          style: TextStyle(
+                                            color: _hasSecurityPin ? AppColors.success : AppColors.textMuted,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _hasSecurityPin
+                                    ? 'A 4-digit PIN is required each time the application starts up to safeguard financial records.'
+                                    : 'Protect your financial records from unauthorized local access by enabling a 4-digit startup PIN.',
+                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+                              ),
+                              const SizedBox(height: 18),
+                              Row(
+                                children: [
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                    ),
+                                    icon: const Icon(Icons.password_rounded, size: 18),
+                                    label: Text(
+                                      _hasSecurityPin ? 'Change Access PIN' : 'Set Up Access PIN',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                    onPressed: _promptChangePin,
+                                  ),
+                                  if (_hasSecurityPin) ...[
+                                    const SizedBox(width: 12),
+                                    OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.error,
+                                        side: const BorderSide(color: AppColors.borderStrong),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      ),
+                                      icon: const Icon(Icons.lock_open_rounded, size: 18),
+                                      label: const Text('Disable PIN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                      onPressed: _promptRemovePin,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ),
                         ),
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:crypto/crypto.dart';
 import '../data/database.dart';
+import '../core/security_pin_service.dart';
 import '../main.dart'; // To access the main app frame after unlock
 
 class SecurityLockPage extends StatefulWidget {
@@ -30,15 +32,16 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
   Future<void> _checkPinStatus() async {
     try {
       final db = Provider.of<AppDatabase>(context, listen: false);
-      final pinRow = await (db.select(db.syncMetadata)..where((t) => t.key.equals('security_pin_hash'))).getSingleOrNull();
+      final pinService = SecurityPinService(db);
+      final pinHash = await pinService.getPinHash();
       
       if (mounted) {
         setState(() {
           _isLoading = false;
-          if (pinRow == null || pinRow.value.isEmpty) {
+          if (pinHash == null || pinHash.isEmpty) {
             _isSetupMode = true;
           } else {
-            _savedPinHash = pinRow.value;
+            _savedPinHash = pinHash;
           }
         });
       }
@@ -94,10 +97,8 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
         if (enteredPin == _firstEnteredPin) {
           // PIN matched, save it
           final db = Provider.of<AppDatabase>(context, listen: false);
-          final hashed = _hashPin(enteredPin);
-          await db.into(db.syncMetadata).insertOnConflictUpdate(
-            SyncMetadataCompanion.insert(key: 'security_pin_hash', value: hashed),
-          );
+          final pinService = SecurityPinService(db);
+          await pinService.setPin(enteredPin);
           _navigateToApp();
         } else {
           setState(() {
@@ -123,6 +124,185 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const AppNavigationShell()),
+    );
+  }
+
+  Future<void> _showForgotPinDialog() async {
+    final identityController = TextEditingController();
+    final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
+    String dialogError = '';
+    bool isResetting = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.lock_reset_rounded, color: Color(0xFF2563EB)),
+                SizedBox(width: 10),
+                Text('Reset Access PIN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ],
+            ),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Verify your registered business details or master emergency recovery key (9999) to reset your access PIN.',
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: identityController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Registered Business Name / Phone / Master Key',
+                        hintText: 'e.g. My Business Enterprise or 9999',
+                        prefixIcon: Icon(Icons.verified_user_outlined, size: 20),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: newPinController,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'New 4-Digit Access PIN',
+                        hintText: '4 numbers',
+                        prefixIcon: Icon(Icons.password_rounded, size: 20),
+                        counterText: '',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: confirmPinController,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm New 4-Digit PIN',
+                        hintText: 'Repeat 4 numbers',
+                        prefixIcon: Icon(Icons.lock_outline_rounded, size: 20),
+                        counterText: '',
+                        isDense: true,
+                      ),
+                    ),
+                    if (dialogError.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError,
+                                style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isResetting ? null : () => Navigator.pop(dialogCtx),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
+                icon: isResetting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.check_circle_outline_rounded, size: 18),
+                label: const Text('Verify & Reset PIN', style: TextStyle(fontWeight: FontWeight.bold)),
+                onPressed: isResetting
+                    ? null
+                    : () async {
+                        final identity = identityController.text.trim();
+                        final newPin = newPinController.text.trim();
+                        final confirmPin = confirmPinController.text.trim();
+
+                        if (identity.isEmpty) {
+                          setDialogState(() => dialogError = 'Please enter your registered business name, phone, or recovery key.');
+                          return;
+                        }
+                        if (newPin.length != 4 || int.tryParse(newPin) == null) {
+                          setDialogState(() => dialogError = 'New PIN must be exactly 4 digits.');
+                          return;
+                        }
+                        if (newPin != confirmPin) {
+                          setDialogState(() => dialogError = 'PINs do not match. Please verify.');
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isResetting = true;
+                          dialogError = '';
+                        });
+
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final db = Provider.of<AppDatabase>(context, listen: false);
+                          final pinService = SecurityPinService(db);
+                          final isIdentityValid = await pinService.verifyRecoveryIdentity(identity);
+
+                          if (!isIdentityValid) {
+                            setDialogState(() {
+                              isResetting = false;
+                              dialogError = 'Verification failed. Business details or recovery key incorrect.';
+                            });
+                            return;
+                          }
+
+                          await pinService.setPin(newPin);
+                          if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+
+                          if (mounted) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                backgroundColor: Color(0xFF059669),
+                                content: Text('Security PIN successfully reset! Logging in...'),
+                              ),
+                            );
+                            _navigateToApp();
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            isResetting = false;
+                            dialogError = 'Failed to reset PIN: $e';
+                          });
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -152,104 +332,136 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            width: 380,
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                )
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Logo Icon
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    shape: BoxShape.circle,
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            final keyLabel = event.logicalKey.keyLabel;
+            if (keyLabel.length == 1 && int.tryParse(keyLabel) != null) {
+              _onKeyPress(int.parse(keyLabel));
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
+              _onBackspace();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+              _submitPin();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Center(
+          child: SingleChildScrollView(
+            child: Container(
+              width: 380,
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  )
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo Icon
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEFF6FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.lock_person_rounded,
+                      color: Color(0xFF1E40AF),
+                      size: 36,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.lock_person_rounded,
-                    color: Color(0xFF1E40AF),
-                    size: 36,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                // Titles
-                Text(
-                  titleText,
-                  style: const TextStyle(color: Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitleText,
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.4),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 28),
-
-                // Pad circles
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(4, (index) {
-                    final isFilled = index < _enteredDigits.length;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 10),
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: isFilled ? const Color(0xFF1E40AF) : Colors.transparent,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isFilled ? const Color(0xFF1E40AF) : const Color(0xFFCBD5E1),
-                          width: 2,
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 20),
-
-                // Error Message
-                if (_errorMessage.isNotEmpty)
+                  const SizedBox(height: 20),
+                  
+                  // Titles
                   Text(
-                    _errorMessage,
-                    style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13, fontWeight: FontWeight.w500),
+                    titleText,
+                    style: const TextStyle(color: Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
-                const SizedBox(height: 20),
+                  const SizedBox(height: 6),
+                  Text(
+                    subtitleText,
+                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.4),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 28),
 
-                // Visual Keypad
-                GridView.count(
-                  shrinkWrap: true,
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 14,
-                  crossAxisSpacing: 14,
-                  childAspectRatio: 1.35,
-                  children: [
-                    for (int i = 1; i <= 9; i++) _buildKeyButton(i),
-                    // Backspace
-                    _buildIconButton(Icons.backspace_rounded, _onBackspace),
-                    // Zero
-                    _buildKeyButton(0),
-                    // Check / Submit
-                    _buildIconButton(Icons.check_circle_rounded, _submitPin, color: const Color(0xFF059669)),
+                  // Pad circles
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(4, (index) {
+                      final isFilled = index < _enteredDigits.length;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: isFilled ? const Color(0xFF1E40AF) : Colors.transparent,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isFilled ? const Color(0xFF1E40AF) : const Color(0xFFCBD5E1),
+                            width: 2,
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Error Message
+                  if (_errorMessage.isNotEmpty)
+                    Text(
+                      _errorMessage,
+                      style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13, fontWeight: FontWeight.w500),
+                      textAlign: TextAlign.center,
+                    ),
+                  const SizedBox(height: 20),
+
+                  // Visual Keypad
+                  GridView.count(
+                    shrinkWrap: true,
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 14,
+                    childAspectRatio: 1.35,
+                    children: [
+                      for (int i = 1; i <= 9; i++) _buildKeyButton(i),
+                      // Backspace
+                      _buildIconButton(Icons.backspace_rounded, _onBackspace),
+                      // Zero
+                      _buildKeyButton(0),
+                      // Check / Submit
+                      _buildIconButton(Icons.check_circle_rounded, _submitPin, color: const Color(0xFF059669)),
+                    ],
+                  ),
+
+                  // Forgot PIN / Password option
+                  if (!_isSetupMode) ...[
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      icon: const Icon(Icons.help_outline_rounded, size: 16, color: Color(0xFF64748B)),
+                      label: const Text(
+                        'Forgot PIN / Password?',
+                        style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                      onPressed: _showForgotPinDialog,
+                    ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

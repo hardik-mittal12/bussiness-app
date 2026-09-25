@@ -54,48 +54,57 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final dialogWidth = (screenSize.width * 0.85).clamp(400.0, 840.0);
+    final dialogHeight = (screenSize.height * 0.9).clamp(500.0, 800.0);
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
-        width: 820,
-        height: 780,
+        width: dialogWidth,
+        height: dialogHeight,
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
             // Top Bar
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.preview_outlined, color: Color(0xFF2563EB)),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Print Preview — ${widget.invoice.voucherType} #${widget.invoice.voucherNumber}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
-                    ),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.preview_outlined, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Print Preview — ${widget.invoice.voucherType} #${widget.invoice.voucherNumber}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                Row(
-                  children: [
-                    // Paper format selector
-                    SegmentedButton<PrinterPaperSize>(
-                      segments: const [
-                        ButtonSegment(value: PrinterPaperSize.a4, label: Text('A4 Standard')),
-                        ButtonSegment(value: PrinterPaperSize.thermal80mm, label: Text('80mm POS')),
-                        ButtonSegment(value: PrinterPaperSize.thermal58mm, label: Text('58mm POS')),
-                      ],
-                      selected: {_selectedPaperSize},
-                      onSelectionChanged: (set) {
-                        setState(() => _selectedPaperSize = set.first);
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
+                const SizedBox(width: 8),
+                SegmentedButton<PrinterPaperSize>(
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  segments: const [
+                    ButtonSegment(value: PrinterPaperSize.a4, label: Text('A4')),
+                    ButtonSegment(value: PrinterPaperSize.thermal80mm, label: Text('80mm')),
+                    ButtonSegment(value: PrinterPaperSize.thermal58mm, label: Text('58mm')),
                   ],
+                  selected: {_selectedPaperSize},
+                  onSelectionChanged: (set) {
+                    setState(() => _selectedPaperSize = set.first);
+                  },
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
@@ -130,6 +139,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                   icon: const Icon(Icons.picture_as_pdf, color: Color(0xFFDC2626)),
                   label: const Text('Export PDF'),
                   onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
                     try {
                       final pdfService = PdfExportService(widget.db);
                       final bytes = await pdfService.exportInvoicePdf(widget.invoice, paperSize: _selectedPaperSize);
@@ -139,7 +149,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                       );
                     } catch (e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+                        messenger.showSnackBar(SnackBar(content: Text('Export failed: $e')));
                       }
                     }
                   },
@@ -154,12 +164,24 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                   icon: const Icon(Icons.print),
                   label: const Text('Print Now'),
                   onPressed: () async {
-                    await InvoicePrinter.printInvoice(
-                      context: context,
-                      db: widget.db,
-                      invoice: widget.invoice,
-                      paperSize: _selectedPaperSize,
-                    );
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await InvoicePrinter.printInvoice(
+                        context: context,
+                        db: widget.db,
+                        invoice: widget.invoice,
+                        paperSize: _selectedPaperSize,
+                      );
+                    } catch (e) {
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          SnackBar(
+                            backgroundColor: const Color(0xFFDC2626),
+                            content: Text('Print failed: $e'),
+                          ),
+                        );
+                      }
+                    }
                   },
                 ),
               ],

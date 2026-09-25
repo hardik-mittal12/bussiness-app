@@ -28,17 +28,28 @@ class _SecurityLockPageState extends State<SecurityLockPage> {
   }
 
   Future<void> _checkPinStatus() async {
-    final db = Provider.of<AppDatabase>(context, listen: false);
-    final pinRow = await (db.select(db.syncMetadata)..where((t) => t.key.equals('security_pin_hash'))).getSingleOrNull();
-    
-    setState(() {
-      _isLoading = false;
-      if (pinRow == null || pinRow.value.isEmpty) {
-        _isSetupMode = true;
-      } else {
-        _savedPinHash = pinRow.value;
+    try {
+      final db = Provider.of<AppDatabase>(context, listen: false);
+      final pinRow = await (db.select(db.syncMetadata)..where((t) => t.key.equals('security_pin_hash'))).getSingleOrNull();
+      
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (pinRow == null || pinRow.value.isEmpty) {
+            _isSetupMode = true;
+          } else {
+            _savedPinHash = pinRow.value;
+          }
+        });
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isSetupMode = true;
+        });
+      }
+    }
   }
 
   String _hashPin(String pin) {

@@ -175,6 +175,7 @@ class AppDatabase extends _$AppDatabase {
       ),
       native: DriftNativeOptions(
         databasePath: () => getCustomDatabasePath('tally_ledger'),
+        tempDirectoryPath: () => getTempDirectoryPath(),
       ),
     );
   }
@@ -183,10 +184,12 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
         beforeOpen: (details) async {
           // Configure SQLite PRAGMAs for production reliability
-          await customStatement('PRAGMA journal_mode = WAL;');
-          await customStatement('PRAGMA synchronous = FULL;');
-          await customStatement('PRAGMA foreign_keys = ON;');
-          await customStatement('PRAGMA busy_timeout = 5000;');
+          try {
+            await customStatement('PRAGMA journal_mode = WAL;');
+            await customStatement('PRAGMA synchronous = FULL;');
+            await customStatement('PRAGMA foreign_keys = ON;');
+            await customStatement('PRAGMA busy_timeout = 5000;');
+          } catch (_) {}
 
           // Ensure critical performance indexes exist
           await customStatement('CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers (date DESC);');

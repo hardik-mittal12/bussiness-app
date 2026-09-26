@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 import 'connection/connection.dart';
-import 'path_resolver.dart';
 import '../core/financial_year_service.dart';
 
 part 'database.g.dart';

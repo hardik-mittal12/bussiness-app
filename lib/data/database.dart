@@ -1,5 +1,5 @@
 import 'package:drift/drift.dart';
-import 'package:drift_flutter/drift_flutter.dart';
+import 'connection/connection.dart';
 import 'path_resolver.dart';
 import '../core/financial_year_service.dart';
 
@@ -166,19 +166,7 @@ class AppDatabase extends _$AppDatabase {
   @override
   int get schemaVersion => 5;
 
-  static QueryExecutor _openConnection() {
-    return driftDatabase(
-      name: 'tally_ledger',
-      web: DriftWebOptions(
-        sqlite3Wasm: Uri.parse('sqlite3.wasm'),
-        driftWorker: Uri.parse('drift_worker.js'),
-      ),
-      native: DriftNativeOptions(
-        databasePath: () => getCustomDatabasePath('tally_ledger'),
-        tempDirectoryPath: () => getTempDirectoryPath(),
-      ),
-    );
-  }
+  static QueryExecutor _openConnection() => openConnection();
 
   @override
   MigrationStrategy get migration => MigrationStrategy(

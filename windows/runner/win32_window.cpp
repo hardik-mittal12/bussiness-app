@@ -196,6 +196,11 @@ Win32Window::MessageHandler(HWND hwnd,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 
       return 0;
+    case WM_GETMINMAXINFO: {
+      LPMINMAXINFO lpMMI = reinterpret_cast<LPMINMAXINFO>(lparam);
+      lpMMI->ptMinTrackSize.x = 1000;
+      lpMMI->ptMinTrackSize.y = 650;
+      return 0;
     }
     case WM_SIZE: {
       RECT rect = GetClientArea();

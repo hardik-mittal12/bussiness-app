@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -9,6 +8,7 @@ import '../core/business_profile_service.dart';
 import '../core/accounting_engine.dart';
 import '../core/security_pin_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/app_logo_image.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -20,13 +20,14 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _formKey = GlobalKey<FormState>();
   
-  String _companyName = 'My Business Enterprise';
-  String _address = '';
-  String _phone = '';
-  String _email = '';
-  String _taxNumber = '';
-  String _bankDetails = '';
-  String _termsAndConditions = '';
+  final TextEditingController _companyNameController = TextEditingController(text: 'My Business Enterprise');
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _taxNumberController = TextEditingController();
+  final TextEditingController _bankDetailsController = TextEditingController();
+  final TextEditingController _termsController = TextEditingController();
+  
   String? _logoPath;
   
   bool _hasSecurityPin = false;
@@ -34,6 +35,18 @@ class _SettingsPageState extends State<SettingsPage> {
   SystemHealthInfo? _healthInfo;
   DatabaseInvariantReport? _diagnosticReport;
   bool _isDiagnosticRunning = false;
+
+  @override
+  void dispose() {
+    _companyNameController.dispose();
+    _addressController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _taxNumberController.dispose();
+    _bankDetailsController.dispose();
+    _termsController.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -44,21 +57,22 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadSettings() async {
     final db = Provider.of<AppDatabase>(context, listen: false);
-    final profileService = BusinessProfileService(db);
+    final profileService = Provider.of<BusinessProfileService>(context, listen: false);
     final profile = await profileService.getProfile();
     final pinService = SecurityPinService(db);
     final hasPin = await pinService.hasPin();
 
     setState(() {
-      _companyName = profile.companyName;
-      _address = profile.address ?? '';
-      _phone = profile.phone ?? '';
-      _email = profile.email ?? '';
-      _taxNumber = profile.taxNumber ?? '';
-      _bankDetails = profile.bankDetails ?? '';
-      _termsAndConditions = profile.termsAndConditions ?? '';
       _logoPath = profile.logoPath;
       _hasSecurityPin = hasPin;
+
+      _companyNameController.text = profile.companyName;
+      _addressController.text = profile.address ?? '';
+      _phoneController.text = profile.phone ?? '';
+      _emailController.text = profile.email ?? '';
+      _taxNumberController.text = profile.taxNumber ?? '';
+      _bankDetailsController.text = profile.bankDetails ?? '';
+      _termsController.text = profile.termsAndConditions ?? '';
     });
   }
 
@@ -84,8 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (result.isNotEmpty && result.first.path != null) {
         final path = result.first.path!;
         if (!mounted) return;
-        final db = Provider.of<AppDatabase>(context, listen: false);
-        final profileService = BusinessProfileService(db);
+        final profileService = Provider.of<BusinessProfileService>(context, listen: false);
         await profileService.updateLogo(path);
         await _loadSettings();
         if (mounted) {
@@ -123,8 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (confirm == true) {
       if (!mounted) return;
-      final db = Provider.of<AppDatabase>(context, listen: false);
-      final profileService = BusinessProfileService(db);
+      final profileService = Provider.of<BusinessProfileService>(context, listen: false);
       await profileService.updateLogo(null);
       await _loadSettings();
       if (mounted) {
@@ -139,20 +151,21 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
-    final db = Provider.of<AppDatabase>(context, listen: false);
     setState(() => _isLoading = true);
 
     try {
-      final profileService = BusinessProfileService(db);
+      final profileService = Provider.of<BusinessProfileService>(context, listen: false);
       await profileService.updateProfile(
-        companyName: _companyName,
-        address: _address.isNotEmpty ? _address : null,
-        phone: _phone.isNotEmpty ? _phone : null,
-        email: _email.isNotEmpty ? _email : null,
-        taxNumber: _taxNumber.isNotEmpty ? _taxNumber : null,
-        bankDetails: _bankDetails.isNotEmpty ? _bankDetails : null,
-        termsAndConditions: _termsAndConditions.isNotEmpty ? _termsAndConditions : null,
+        companyName: _companyNameController.text.trim(),
+        address: _addressController.text.trim().isNotEmpty ? _addressController.text.trim() : null,
+        phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
+        email: _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
+        taxNumber: _taxNumberController.text.trim().isNotEmpty ? _taxNumberController.text.trim() : null,
+        bankDetails: _bankDetailsController.text.trim().isNotEmpty ? _bankDetailsController.text.trim() : null,
+        termsAndConditions: _termsController.text.trim().isNotEmpty ? _termsController.text.trim() : null,
       );
+
+      await _loadSettings();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -782,12 +795,14 @@ class _SettingsPageState extends State<SettingsPage> {
                                           borderRadius: BorderRadius.circular(8),
                                           border: Border.all(color: AppColors.borderStrong),
                                         ),
-                                        child: _logoPath != null && File(_logoPath!).existsSync()
-                                            ? ClipRRect(
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: Image.file(File(_logoPath!), fit: BoxFit.contain),
-                                              )
-                                            : const Icon(Icons.image_outlined, color: AppColors.textMuted, size: 32),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: const AppLogoImage(
+                                            width: 72,
+                                            height: 72,
+                                            fit: BoxFit.contain,
+                                          ),
+                                        ),
                                       ),
                                       const SizedBox(width: 16),
                                       Expanded(
@@ -828,16 +843,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
                                 _profileField(
                                   label: 'Company / Firm / Business Name *',
-                                  initialValue: _companyName,
+                                  controller: _companyNameController,
                                   isRequired: true,
-                                  onSaved: (v) => _companyName = v!.trim(),
                                 ),
                                 const SizedBox(height: 14),
                                 _profileField(
                                   label: 'Complete Business Address',
-                                  initialValue: _address,
+                                  controller: _addressController,
                                   maxLines: 2,
-                                  onSaved: (v) => _address = v?.trim() ?? '',
                                 ),
                                 const SizedBox(height: 14),
                                 Row(
@@ -845,16 +858,14 @@ class _SettingsPageState extends State<SettingsPage> {
                                     Expanded(
                                       child: _profileField(
                                         label: 'Phone / Mobile',
-                                        initialValue: _phone,
-                                        onSaved: (v) => _phone = v?.trim() ?? '',
+                                        controller: _phoneController,
                                       ),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: _profileField(
                                         label: 'Email Address',
-                                        initialValue: _email,
-                                        onSaved: (v) => _email = v?.trim() ?? '',
+                                        controller: _emailController,
                                       ),
                                     ),
                                   ],
@@ -862,22 +873,19 @@ class _SettingsPageState extends State<SettingsPage> {
                                 const SizedBox(height: 14),
                                 _profileField(
                                   label: 'GSTIN / Tax Registration Number',
-                                  initialValue: _taxNumber,
-                                  onSaved: (v) => _taxNumber = v?.trim() ?? '',
+                                  controller: _taxNumberController,
                                 ),
                                 const SizedBox(height: 14),
                                 _profileField(
                                   label: 'Bank Account Details (printed on invoice footer)',
-                                  initialValue: _bankDetails,
+                                  controller: _bankDetailsController,
                                   maxLines: 2,
-                                  onSaved: (v) => _bankDetails = v?.trim() ?? '',
                                 ),
                                 const SizedBox(height: 14),
                                 _profileField(
                                   label: 'Terms & Conditions (printed on invoices)',
-                                  initialValue: _termsAndConditions,
+                                  controller: _termsController,
                                   maxLines: 3,
-                                  onSaved: (v) => _termsAndConditions = v?.trim() ?? '',
                                 ),
                               ],
                             ),
@@ -1153,13 +1161,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _profileField({
     required String label,
-    required String? initialValue,
-    required void Function(String?) onSaved,
+    required TextEditingController controller,
     bool isRequired = false,
     int maxLines = 1,
   }) {
     return TextFormField(
-      initialValue: initialValue,
+      controller: controller,
       maxLines: maxLines,
       style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
       decoration: InputDecoration(
@@ -1169,7 +1176,6 @@ class _SettingsPageState extends State<SettingsPage> {
       validator: isRequired
           ? (val) => val == null || val.trim().isEmpty ? 'Required field' : null
           : null,
-      onSaved: onSaved,
     );
   }
 }

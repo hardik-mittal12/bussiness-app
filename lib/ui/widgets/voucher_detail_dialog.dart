@@ -11,15 +11,16 @@ import 'print_preview_dialog.dart';
 
 class VoucherDetailDialog extends StatelessWidget {
   final String voucherId;
+  final VoidCallback? onDeleted;
   final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
 
-  VoucherDetailDialog({super.key, required this.voucherId});
+  VoucherDetailDialog({super.key, required this.voucherId, this.onDeleted});
 
-  static void show(BuildContext context, String voucherId) {
+  static void show(BuildContext context, String voucherId, {VoidCallback? onDeleted}) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.5),
-      builder: (context) => VoucherDetailDialog(voucherId: voucherId),
+      builder: (context) => VoucherDetailDialog(voucherId: voucherId, onDeleted: onDeleted),
     );
   }
 
@@ -500,141 +501,217 @@ class VoucherDetailDialog extends StatelessWidget {
     final isInvoice = detail.voucher.voucherType == 'Sales' || detail.voucher.voucherType == 'Purchase';
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        TextButton(
-          child: const Text('Close', style: TextStyle(color: AppColors.textMuted)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        const SizedBox(width: 12),
-        if (isInvoice) ...[
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.borderStrong),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            ),
-            icon: const Icon(Icons.preview_rounded, size: 16),
-            label: const Text('Print Preview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            onPressed: () async {
-              final db = Provider.of<AppDatabase>(context, listen: false);
-              final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
-              
-              double subtotal = 0.0;
-              for (final st in detail.stockTransactions) {
-                if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
-              }
-              double grandTotal = 0.0;
-              for (final e in detail.entries) {
-                if (e.ledgerId == detail.contactLedger.id) {
-                  grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
-                }
-              }
-
-              final viewModel = InvoiceViewModel(
-                voucherNumber: detail.voucher.voucherNumber,
-                voucherType: detail.voucher.voucherType,
-                financialYear: fy,
-                date: detail.voucher.date,
-                partyName: detail.contactLedger.name,
-                partyAddress: detail.contactLedger.address ?? '',
-                partyTaxNumber: detail.contactLedger.taxNumber ?? '',
-                partyPhone: detail.contactLedger.phone,
-                items: detail.stockTransactions.map((st) => InvoiceItemRow(
-                  itemName: st.itemName,
-                  quantity: st.tx.quantity.abs(),
-                  rate: st.tx.rate,
-                  amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
-                  isReplacement: st.tx.isReplacement,
-                )).toList(),
-                subtotal: subtotal,
-                discount: detail.voucher.discountAmount,
-                cgst: 0.0,
-                sgst: 0.0,
-                grandTotal: grandTotal,
-                narration: detail.voucher.narration ?? '',
-              );
-
-              await PrintPreviewDialog.show(context, db: db, invoice: viewModel);
-            },
+        // Left: Delete Permanently Button
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.error,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.surfaceSecondary,
-              foregroundColor: AppColors.textPrimary,
-              elevation: 0,
-              side: const BorderSide(color: AppColors.borderStrong),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            ),
-            icon: const Icon(Icons.edit_rounded, size: 16),
-            label: const Text('Alter / Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => InvoiceCreationPage(existingVoucher: detail.voucher),
+          icon: const Icon(Icons.delete_forever_rounded, size: 16),
+          label: Text(
+            isInvoice ? 'Delete Invoice' : 'Delete ${detail.voucher.voucherType}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          onPressed: () async {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: Text(
+                  'Permanently Delete ${detail.voucher.voucherType}?',
+                  style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
                 ),
-              );
-            },
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            ),
-            icon: const Icon(Icons.print_rounded, size: 16),
-            label: const Text('Reprint', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            onPressed: () async {
-              final db = Provider.of<AppDatabase>(context, listen: false);
-              final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
+                content: Text(
+                  'Are you sure you want to permanently delete ${detail.voucher.voucherType} #${detail.voucher.voucherNumber}?\n\n'
+                  '• This voucher will be completely removed from the database.\n'
+                  '• Stock quantities and inventory history will be restored.\n'
+                  '• Customer and ledger balances will be reversed.\n\n'
+                  'This action cannot be undone.',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+                actions: [
+                  TextButton(
+                    child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+                    onPressed: () => Navigator.pop(ctx, false),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+                    child: const Text('Delete Permanently', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    onPressed: () => Navigator.pop(ctx, true),
+                  ),
+                ],
+              ),
+            );
 
-              double subtotal = 0.0;
-              for (final st in detail.stockTransactions) {
-                if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
-              }
-              double grandTotal = 0.0;
-              for (final e in detail.entries) {
-                if (e.ledgerId == detail.contactLedger.id) {
-                  grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
+            if (confirm == true) {
+              if (!context.mounted) return;
+              try {
+                final engine = Provider.of<AccountingEngine>(context, listen: false);
+                await engine.deleteVoucher(detail.voucher.id);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  onDeleted?.call();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: AppColors.error,
+                      content: Text('${detail.voucher.voucherType} #${detail.voucher.voucherNumber} permanently deleted.'),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(backgroundColor: AppColors.error, content: Text('Failed to delete voucher: $e')),
+                  );
                 }
               }
+            }
+          },
+        ),
 
-              final viewModel = InvoiceViewModel(
-                voucherNumber: detail.voucher.voucherNumber,
-                voucherType: detail.voucher.voucherType,
-                financialYear: fy,
-                date: detail.voucher.date,
-                partyName: detail.contactLedger.name,
-                partyAddress: detail.contactLedger.address ?? '',
-                partyTaxNumber: detail.contactLedger.taxNumber ?? '',
-                partyPhone: detail.contactLedger.phone,
-                items: detail.stockTransactions.map((st) => InvoiceItemRow(
-                  itemName: st.itemName,
-                  quantity: st.tx.quantity.abs(),
-                  rate: st.tx.rate,
-                  amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
-                  isReplacement: st.tx.isReplacement,
-                )).toList(),
-                subtotal: subtotal,
-                discount: detail.voucher.discountAmount,
-                cgst: 0.0,
-                sgst: 0.0,
-                grandTotal: grandTotal,
-                narration: detail.voucher.narration ?? '',
-              );
+        // Right Actions
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              child: const Text('Close', style: TextStyle(color: AppColors.textMuted)),
+              onPressed: () => Navigator.pop(context),
+            ),
+            const SizedBox(width: 12),
+            if (isInvoice) ...[
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.borderStrong),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: const Icon(Icons.preview_rounded, size: 16),
+                label: const Text('Print Preview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: () async {
+                  final db = Provider.of<AppDatabase>(context, listen: false);
+                  final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
+                  
+                  double subtotal = 0.0;
+                  for (final st in detail.stockTransactions) {
+                    if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
+                  }
+                  double grandTotal = 0.0;
+                  for (final e in detail.entries) {
+                    if (e.ledgerId == detail.contactLedger.id) {
+                      grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
+                    }
+                  }
 
-              await InvoicePrinter.printInvoice(
-                context: context,
-                db: db,
-                invoice: viewModel,
-              );
-            },
-          ),
-        ],
+                  final viewModel = InvoiceViewModel(
+                    voucherNumber: detail.voucher.voucherNumber,
+                    voucherType: detail.voucher.voucherType,
+                    financialYear: fy,
+                    date: detail.voucher.date,
+                    partyName: detail.contactLedger.name,
+                    partyAddress: detail.contactLedger.address ?? '',
+                    partyTaxNumber: detail.contactLedger.taxNumber ?? '',
+                    partyPhone: detail.contactLedger.phone,
+                    items: detail.stockTransactions.map((st) => InvoiceItemRow(
+                      itemName: st.itemName,
+                      quantity: st.tx.quantity.abs(),
+                      rate: st.tx.rate,
+                      amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
+                      isReplacement: st.tx.isReplacement,
+                    )).toList(),
+                    subtotal: subtotal,
+                    discount: detail.voucher.discountAmount,
+                    cgst: 0.0,
+                    sgst: 0.0,
+                    grandTotal: grandTotal,
+                    narration: detail.voucher.narration ?? '',
+                  );
+
+                  await PrintPreviewDialog.show(context, db: db, invoice: viewModel);
+                },
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.surfaceSecondary,
+                  foregroundColor: AppColors.textPrimary,
+                  elevation: 0,
+                  side: const BorderSide(color: AppColors.borderStrong),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('Alter / Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => InvoiceCreationPage(existingVoucher: detail.voucher),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: const Icon(Icons.print_rounded, size: 16),
+                label: const Text('Reprint', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: () async {
+                  final db = Provider.of<AppDatabase>(context, listen: false);
+                  final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
+
+                  double subtotal = 0.0;
+                  for (final st in detail.stockTransactions) {
+                    if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
+                  }
+                  double grandTotal = 0.0;
+                  for (final e in detail.entries) {
+                    if (e.ledgerId == detail.contactLedger.id) {
+                      grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
+                    }
+                  }
+
+                  final viewModel = InvoiceViewModel(
+                    voucherNumber: detail.voucher.voucherNumber,
+                    voucherType: detail.voucher.voucherType,
+                    financialYear: fy,
+                    date: detail.voucher.date,
+                    partyName: detail.contactLedger.name,
+                    partyAddress: detail.contactLedger.address ?? '',
+                    partyTaxNumber: detail.contactLedger.taxNumber ?? '',
+                    partyPhone: detail.contactLedger.phone,
+                    items: detail.stockTransactions.map((st) => InvoiceItemRow(
+                      itemName: st.itemName,
+                      quantity: st.tx.quantity.abs(),
+                      rate: st.tx.rate,
+                      amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
+                      isReplacement: st.tx.isReplacement,
+                    )).toList(),
+                    subtotal: subtotal,
+                    discount: detail.voucher.discountAmount,
+                    cgst: 0.0,
+                    sgst: 0.0,
+                    grandTotal: grandTotal,
+                    narration: detail.voucher.narration ?? '',
+                  );
+
+                  await InvoicePrinter.printInvoice(
+                    context: context,
+                    db: db,
+                    invoice: viewModel,
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
       ],
     );
   }

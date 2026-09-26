@@ -1355,6 +1355,21 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                       label: const Text('Preview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                       onPressed: _isSubmitting ? null : _previewInvoice,
                     ),
+                    if (widget.existingVoucher != null) ...[
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.error,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.delete_forever_rounded, size: 16),
+                        label: Text('Delete $_invoiceType', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        onPressed: _isSubmitting ? null : _deleteBill,
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(

@@ -402,14 +402,21 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
 // ----------------------------------------------------
 // Ledger Statement Screen
 // ----------------------------------------------------
-class LedgerStatementPage extends StatelessWidget {
+class LedgerStatementPage extends StatefulWidget {
   final Ledger ledger;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
 
-  LedgerStatementPage({super.key, required this.ledger});
+  const LedgerStatementPage({super.key, required this.ledger});
+
+  @override
+  State<LedgerStatementPage> createState() => _LedgerStatementPageState();
+}
+
+class _LedgerStatementPageState extends State<LedgerStatementPage> {
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
 
   @override
   Widget build(BuildContext context) {
+    final ledger = widget.ledger;
     final engine = Provider.of<AccountingEngine>(context, listen: false);
     final db = Provider.of<AppDatabase>(context, listen: false);
 
@@ -595,7 +602,11 @@ class LedgerStatementPage extends StatelessWidget {
                                   ],
                                 ),
                                 onTap: () {
-                                  VoucherDetailDialog.show(context, row.voucherId);
+                                  VoucherDetailDialog.show(
+                                    context,
+                                    row.voucherId,
+                                    onDeleted: () => setState(() {}),
+                                  );
                                 },
                               );
                             },

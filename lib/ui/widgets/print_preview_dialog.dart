@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
@@ -7,6 +7,7 @@ import '../../core/invoice_printer.dart';
 import '../../core/money_precision.dart';
 import '../../core/pdf_export_service.dart';
 import '../../data/database.dart';
+import 'app_logo_image.dart';
 
 class PrintPreviewDialog extends StatefulWidget {
   final AppDatabase db;
@@ -32,6 +33,7 @@ class PrintPreviewDialog extends StatefulWidget {
 class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   PrinterPaperSize _selectedPaperSize = PrinterPaperSize.a4;
   BusinessProfile? _profile;
+  Uint8List? _logoBytes;
   bool _isLoading = true;
   static final _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
 
@@ -44,9 +46,11 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   Future<void> _loadProfile() async {
     final service = BusinessProfileService(widget.db);
     final p = await service.getProfile();
+    final bytes = await service.getLogoBytes();
     if (mounted) {
       setState(() {
         _profile = p;
+        _logoBytes = bytes;
         _isLoading = false;
       });
     }
@@ -195,8 +199,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   Widget _buildA4Document() {
     final p = _profile!;
     final inv = widget.invoice;
-    final file = (p.logoPath != null && p.logoPath!.isNotEmpty) ? File(p.logoPath!) : null;
-    final hasLogo = file != null && file.existsSync();
+    final hasLogo = (_logoBytes != null && _logoBytes!.isNotEmpty) ||
+        (p.logoPath != null && p.logoPath!.isNotEmpty);
 
     return Container(
       width: 600,
@@ -236,7 +240,13 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(4),
-                          child: Image.file(file, fit: BoxFit.contain),
+                          child: AppLogoImage(
+                            logoBytes: _logoBytes,
+                            logoPath: p.logoPath,
+                            width: 52,
+                            height: 52,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     Expanded(
@@ -375,8 +385,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   Widget _buildThermalDocument(double width) {
     final p = _profile!;
     final inv = widget.invoice;
-    final file = (p.logoPath != null && p.logoPath!.isNotEmpty) ? File(p.logoPath!) : null;
-    final hasLogo = file != null && file.existsSync();
+    final hasLogo = (_logoBytes != null && _logoBytes!.isNotEmpty) ||
+        (p.logoPath != null && p.logoPath!.isNotEmpty);
 
     return Container(
       width: width,
@@ -390,7 +400,13 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (hasLogo) ...[
-            Image.file(file, height: 40, fit: BoxFit.contain),
+            AppLogoImage(
+              logoBytes: _logoBytes,
+              logoPath: p.logoPath,
+              height: 40,
+              width: 40,
+              fit: BoxFit.contain,
+            ),
             const SizedBox(height: 6),
           ],
           Text(p.companyName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center),

@@ -97,17 +97,12 @@ class InvoicePrinter {
     final profile = await profileService.getProfile();
 
     pw.MemoryImage? logoImage;
-    if (profile.logoPath != null && profile.logoPath!.trim().isNotEmpty) {
-      final file = File(profile.logoPath!);
-      if (file.existsSync()) {
-        try {
-          final bytes = file.readAsBytesSync();
-          if (bytes.isNotEmpty) {
-            logoImage = pw.MemoryImage(bytes);
-          }
-        } catch (_) {}
+    try {
+      final logoBytes = await profileService.getLogoBytes();
+      if (logoBytes != null && logoBytes.isNotEmpty) {
+        logoImage = pw.MemoryImage(logoBytes);
       }
-    }
+    } catch (_) {}
 
     final pdf = pw.Document();
 

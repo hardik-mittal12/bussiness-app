@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/business_profile_service.dart';
 import '../../data/database.dart';
 import '../theme/app_theme.dart';
+import 'app_logo_image.dart';
 
 class Sidebar extends StatelessWidget {
   final int currentIndex;
@@ -42,77 +42,77 @@ class Sidebar extends StatelessWidget {
       child: Column(
         children: [
           // Logo & Branding
-          FutureBuilder<BusinessProfile>(
-            future: BusinessProfileService(Provider.of<AppDatabase>(context, listen: false)).getProfile(),
-            builder: (context, snapshot) {
-              final profile = snapshot.data;
-              final logoPath = profile?.logoPath;
-              final hasLogo = logoPath != null && File(logoPath).existsSync();
-              final companyName = (profile?.companyName != null && profile!.companyName.isNotEmpty)
-                  ? profile.companyName
-                  : 'TALLY LEDGER';
+          Consumer<BusinessProfileService>(
+            builder: (context, profileService, _) {
+              return FutureBuilder<BusinessProfile>(
+                future: profileService.getProfile(),
+                builder: (context, snapshot) {
+                  final profile = profileService.currentProfile ?? snapshot.data;
+                  final companyName = (profile?.companyName != null && profile!.companyName.isNotEmpty)
+                      ? profile.companyName
+                      : 'TALLY LEDGER';
 
-              return Container(
-                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: AppColors.border,
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: hasLogo ? Colors.transparent : AppColors.primary,
-                        borderRadius: BorderRadius.circular(8),
-                        border: hasLogo ? Border.all(color: AppColors.border) : null,
-                      ),
-                      child: hasLogo
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(logoPath), fit: BoxFit.contain),
-                            )
-                          : const Icon(
-                              Icons.account_balance_wallet_rounded,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            companyName.toUpperCase(),
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              letterSpacing: 0.5,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const Text(
-                            'PRO EDITION v1.1',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 10,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
+                  return Container(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: AppColors.border,
+                          width: 1,
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceSecondary,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: const AppLogoImage(
+                              width: 42,
+                              height: 42,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                companyName.toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  letterSpacing: 0.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const Text(
+                                'PRO EDITION v1.1',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
           ),

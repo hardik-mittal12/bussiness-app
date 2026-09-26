@@ -312,11 +312,16 @@ class AccountingEngine {
   }
 
   // 3b. Delete Voucher (Permanently wipes voucher, entries, and stock)
-  Future<void> deleteVoucher(String voucherId) async {
+  Future<void> deleteVoucher(String voucherIdOrNumber) async {
     await db.transaction(() async {
-      await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(voucherId))).go();
-      await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(voucherId))).go();
-      await (db.delete(db.vouchers)..where((t) => t.id.equals(voucherId))).go();
+      final v = await (db.select(db.vouchers)
+            ..where((t) => t.id.equals(voucherIdOrNumber) | t.voucherNumber.equals(voucherIdOrNumber)))
+          .getSingleOrNull();
+      if (v == null) return;
+      final vid = v.id;
+      await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(vid))).go();
+      await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(vid))).go();
+      await (db.delete(db.vouchers)..where((t) => t.id.equals(vid))).go();
     });
   }
 

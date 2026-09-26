@@ -40,7 +40,7 @@ void main() async {
         Provider<AuditLogService>.value(value: auditLog),
         Provider<BackupService>.value(value: backupService),
         Provider<DatabaseDiagnosticService>.value(value: diagnosticService),
-        Provider<BusinessProfileService>.value(value: profileService),
+        ChangeNotifierProvider<BusinessProfileService>.value(value: profileService),
         Provider<PdfExportService>.value(value: pdfService),
         Provider<DataExchangeService>.value(value: exchangeService),
       ],

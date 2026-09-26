@@ -15,6 +15,19 @@ Future<String> getCustomDatabasePath(String name) async {
   return p.join(exeDir, '$name.sqlite');
 }
 
+Future<String> getAppStorageDirectoryPath() async {
+  if (Platform.isMacOS) {
+    final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
+    final appSupport = Directory(p.join(home, 'Library', 'Application Support', 'tally_ledger_desktop'));
+    if (!appSupport.existsSync()) {
+      appSupport.createSync(recursive: true);
+    }
+    return appSupport.path;
+  }
+  final exeDir = File(Platform.resolvedExecutable).parent.path;
+  return exeDir;
+}
+
 Future<String> getTempDirectoryPath() async {
   return Directory.systemTemp.path;
 }

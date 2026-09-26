@@ -24,16 +24,12 @@ class PdfExportService {
   }
 
   Future<pw.MemoryImage?> _loadLogoImage() async {
-    final profile = await profileService.getProfile();
-    if (profile.logoPath != null && profile.logoPath!.trim().isNotEmpty) {
-      final file = File(profile.logoPath!);
-      if (file.existsSync()) {
-        try {
-          final bytes = file.readAsBytesSync();
-          if (bytes.isNotEmpty) return pw.MemoryImage(bytes);
-        } catch (_) {}
+    try {
+      final bytes = await profileService.getLogoBytes();
+      if (bytes != null && bytes.isNotEmpty) {
+        return pw.MemoryImage(bytes);
       }
-    }
+    } catch (_) {}
     return null;
   }
 

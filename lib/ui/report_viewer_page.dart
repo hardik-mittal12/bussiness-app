@@ -316,10 +316,63 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
                                       TextButton.icon(
+                                        style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                                        icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                                        label: const Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        onPressed: () async {
+                                          final confirm = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              backgroundColor: AppColors.surface,
+                                              title: Text('Delete ${voucher.voucherType} Permanently?', style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
+                                              content: Text(
+                                                'Permanently delete ${voucher.voucherType} #${voucher.voucherNumber}?\n\n'
+                                                'This will reverse all inventory movements and ledger balances.',
+                                                style: const TextStyle(color: AppColors.textSecondary),
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                ),
+                                                ElevatedButton(
+                                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+                                                  child: const Text('Delete Permanently', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+
+                                          if (confirm == true) {
+                                            try {
+                                              final engine = Provider.of<AccountingEngine>(context, listen: false);
+                                              await engine.deleteVoucher(voucher.id);
+                                              if (context.mounted) {
+                                                setState(() {});
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    backgroundColor: AppColors.error,
+                                                    content: Text('${voucher.voucherType} #${voucher.voucherNumber} deleted.'),
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(backgroundColor: AppColors.error, content: Text('Delete failed: $e')),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                      ),
+                                      const SizedBox(width: 8),
+                                      TextButton.icon(
                                         style: TextButton.styleFrom(foregroundColor: AppColors.primary),
                                         icon: const Icon(Icons.zoom_in_rounded, size: 16),
                                         label: const Text('View Bill / Alter Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                        onPressed: () => VoucherDetailDialog.show(context, voucher.id),
+                                        onPressed: () => VoucherDetailDialog.show(context, voucher.id, onDeleted: () => setState(() {})),
                                       ),
                                     ],
                                   ),
@@ -690,15 +743,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                                 final isAlt = index % 2 == 0;
 
                                 return InkWell(
-                                  onTap: () async {
-                                    final db = Provider.of<AppDatabase>(context, listen: false);
-                                    final voucher = await (db.select(db.vouchers)..where((t) => t.id.equals(row.voucherId))).getSingle();
-                                    if (context.mounted) {
-                                      showDialog(
-                                        context: context,
-                                        builder: (context) => VoucherDetailDialog(voucherId: voucher.id),
-                                      );
-                                    }
+                                  onTap: () {
+                                    VoucherDetailDialog.show(
+                                      context,
+                                      row.voucherId,
+                                      onDeleted: () => setState(() {}),
+                                    );
                                   },
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),

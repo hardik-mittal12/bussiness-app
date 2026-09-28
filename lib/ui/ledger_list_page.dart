@@ -21,7 +21,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
   late TabController _tabController;
   late Stream<List<Ledger>> _debtorsStream;
   late Stream<List<Ledger>> _creditorsStream;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   final Uuid uuid = const Uuid();
 
   @override
@@ -90,7 +90,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                         const SizedBox(height: 12),
                         TextFormField(
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Opening Balance (₹)'),
+                          decoration: const InputDecoration(labelText: 'Opening Balance (Rs.)'),
                           onSaved: (val) => openingBalance = double.tryParse(val ?? '0') ?? 0.0,
                         ),
                         const SizedBox(height: 12),
@@ -412,7 +412,7 @@ class LedgerStatementPage extends StatefulWidget {
 }
 
 class _LedgerStatementPageState extends State<LedgerStatementPage> {
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
 
   @override
   Widget build(BuildContext context) {

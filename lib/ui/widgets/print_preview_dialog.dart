@@ -35,7 +35,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   BusinessProfile? _profile;
   Uint8List? _logoBytes;
   bool _isLoading = true;
-  static final _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  static final _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
 
   @override
   void initState() {
@@ -334,11 +334,11 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                     Padding(padding: const EdgeInsets.all(6), child: Text(item.quantity.toStringAsFixed(2), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11))),
                     Padding(
                       padding: const EdgeInsets.all(6),
-                      child: Text(item.isReplacement ? '₹ 0.00' : _currencyFormat.format(item.rate), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)),
+                      child: Text(item.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(item.rate), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(6),
-                      child: Text(item.isReplacement ? '₹ 0.00' : _currencyFormat.format(item.amount), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)),
+                      child: Text(item.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(item.amount), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)),
                     ),
                   ],
                 );
@@ -355,6 +355,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                 width: 240,
                 child: Column(
                   children: [
+                    _previewTotalRow('Total Pairs', inv.totalPairs.toStringAsFixed(2)),
                     _previewTotalRow('Subtotal', _currencyFormat.format(inv.subtotal)),
                     if (inv.discount > 0)
                       _previewTotalRow('Discount', '- ${_currencyFormat.format(inv.discount)}', isHighlight: true),
@@ -456,12 +457,19 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
           }),
           const Text('------------------------------------------', maxLines: 1, overflow: TextOverflow.clip),
 
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('PAIRS:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+              Text(inv.totalPairs.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+            ],
+          ),
           if (inv.discount > 0) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Discount:', style: TextStyle(fontSize: 10)),
-                Text('-₹${MoneyPrecision.format(inv.discount)}', style: const TextStyle(fontSize: 10)),
+                Text('-Rs.${MoneyPrecision.format(inv.discount)}', style: const TextStyle(fontSize: 10)),
               ],
             ),
             const Text('------------------------------------------', maxLines: 1, overflow: TextOverflow.clip),
@@ -471,7 +479,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('TOTAL:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-              Text('₹${MoneyPrecision.format(inv.grandTotal)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              Text('Rs.${MoneyPrecision.format(inv.grandTotal)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 8),

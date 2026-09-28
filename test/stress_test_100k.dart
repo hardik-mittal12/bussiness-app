@@ -226,7 +226,7 @@ void main() {
     final cust1Balance = await engine.getLedgerBalance('cust_1');
     swLedger.stop();
     final ledgerLatencyMs = swLedger.elapsedMicroseconds / 1000.0;
-    print('• Ledger Balance Aggregation:     ${ledgerLatencyMs.toStringAsFixed(2)}ms (Balance: ₹${cust1Balance.toStringAsFixed(2)})');
+    print('• Ledger Balance Aggregation:     ${ledgerLatencyMs.toStringAsFixed(2)}ms (Balance: Rs.${cust1Balance.toStringAsFixed(2)})');
     expect(cust1Balance, greaterThan(0.0));
     expect(ledgerLatencyMs, lessThan(100.0), reason: 'SQL aggregation for customer ledger must be under 100ms');
 

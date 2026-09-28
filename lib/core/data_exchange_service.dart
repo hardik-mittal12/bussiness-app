@@ -14,6 +14,77 @@ import 'accounting_engine.dart';
 import 'business_profile_service.dart';
 import 'financial_year_service.dart';
 
+String decodeXmlBytes(List<int> bytes) {
+  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+    return _decodeUtf16(bytes.sublist(2), littleEndian: true);
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+    return _decodeUtf16(bytes.sublist(2), littleEndian: false);
+  }
+
+  var content = bytes;
+  if (bytes.length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
+    content = bytes.sublist(3);
+  } else if (bytes.length >= 4 && bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0xFE && bytes[3] == 0xFF) {
+    throw const FormatException('UTF-32 XML is not supported. Save the file as UTF-8 or UTF-16.');
+  }
+
+  final declaration = latin1.decode(content.take(256).toList());
+  final encoding = RegExp(r'''<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']''', caseSensitive: false)
+      .firstMatch(declaration)
+      ?.group(1)
+      ?.toLowerCase()
+      .replaceAll('_', '-');
+
+  if (encoding == 'utf-16le' || encoding == 'utf-16be') {
+    return _decodeUtf16(content, littleEndian: encoding == 'utf-16le');
+  }
+  if (encoding == 'utf-16' && content.length >= 2) {
+    return _decodeUtf16(content, littleEndian: content[0] == 0x3C);
+  }
+  if (encoding == 'windows-1252' || encoding == 'cp1252') {
+    return _decodeWindows1252(content);
+  }
+  if (encoding == 'iso-8859-1' || encoding == 'latin1' || encoding == 'latin-1') {
+    return latin1.decode(content);
+  }
+  if (encoding != null && encoding != 'utf-8' && encoding != 'utf8' && encoding != 'us-ascii' && encoding != 'ascii') {
+    throw FormatException('Unsupported XML encoding: $encoding');
+  }
+
+  try {
+    return utf8.decode(content);
+  } on FormatException {
+    return _decodeWindows1252(content);
+  }
+}
+
+String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
+  if (bytes.length.isOdd) {
+    throw const FormatException('Invalid UTF-16 XML: the byte count is odd.');
+  }
+  final codeUnits = <int>[];
+  for (var index = 0; index < bytes.length; index += 2) {
+    codeUnits.add(littleEndian
+        ? bytes[index] | (bytes[index + 1] << 8)
+        : (bytes[index] << 8) | bytes[index + 1]);
+  }
+  return String.fromCharCodes(codeUnits);
+}
+
+String _decodeWindows1252(List<int> bytes) {
+  const extendedCharacters = <int, int>{
+    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E,
+    0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6,
+    0x89: 0x2030, 0x8A: 0x0160, 0x8B: 0x2039, 0x8C: 0x0152,
+    0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201C,
+    0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,
+    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A,
+    0x9C: 0x0153, 0x9E: 0x017E, 0x9F: 0x0178,
+  };
+  return String.fromCharCodes(bytes.map((byte) => extendedCharacters[byte] ?? byte));
+}
+
 enum ExportDateRange {
   allTime,
   today,
@@ -856,7 +927,7 @@ class DataExchangeService {
     final manifest = {
       'app': 'Tally Ledger Desktop',
       'version': '1.1.0',
-      'schemaVersion': 5,
+      'schemaVersion': 6,
       'createdAt': DateTime.now().toIso8601String(),
       'companyName': profile.companyName,
       'customerCount': custCount.length,

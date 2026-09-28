@@ -18,7 +18,7 @@ class StockSummaryPage extends StatefulWidget {
 
 class _StockSummaryPageState extends State<StockSummaryPage> {
   late Future<List<StockStatus>> _stockSummaryFuture;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   final Uuid uuid = const Uuid();
 
   @override
@@ -91,7 +91,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Opening Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Opening Rate (Rs.)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -103,7 +103,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Purchase Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -111,7 +111,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Sales Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -230,7 +230,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                           child: TextFormField(
                             initialValue: openingRate.toString(),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Opening Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Opening Rate (Rs.)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -243,7 +243,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                           child: TextFormField(
                             initialValue: purchaseRate.toString(),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Purchase Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -252,7 +252,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                           child: TextFormField(
                             initialValue: salesRate.toString(),
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Sales Rate (₹)'),
+                            decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
                         ),
@@ -500,9 +500,13 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                                       flex: 3,
                                       child: Row(
                                         children: [
-                                          Text(
-                                            item.name,
-                                            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
+                                          Expanded(
+                                            child: Text(
+                                              item.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
+                                            ),
                                           ),
                                           if (isLow) ...[
                                             const SizedBox(width: 8),
@@ -563,11 +567,17 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           IconButton(
+                                            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
                                             icon: const Icon(Icons.edit_outlined, color: AppColors.primary, size: 18),
                                             tooltip: 'Edit Item',
                                             onPressed: () => _showEditStockDialog(context, item.id),
                                           ),
                                           IconButton(
+                                            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
                                             icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 18),
                                             tooltip: 'Delete Item',
                                             onPressed: () => _confirmDeleteStockItem(context, item.id, item.name),

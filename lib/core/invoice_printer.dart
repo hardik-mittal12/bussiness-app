@@ -60,6 +60,8 @@ class InvoiceViewModel {
     required this.narration,
     this.paymentMode,
   });
+
+  double get totalPairs => items.fold(0.0, (total, item) => total + item.quantity);
 }
 
 enum PrinterPaperSize {
@@ -69,7 +71,7 @@ enum PrinterPaperSize {
 }
 
 class InvoicePrinter {
-  static final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  static final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
 
   /// Main entry point for printing an invoice across paper formats (A4, 58mm, 80mm)
   static Future<void> printInvoice({
@@ -128,17 +130,15 @@ class InvoicePrinter {
     pw.MemoryImage? logoImage,
   ) {
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context pdfContext) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
+          return [
               // Title
               pw.Center(
                 child: pw.Text(
-                  invoice.voucherType == 'Sales' ? 'TAX INVOICE' : 'PURCHASE VOUCHER',
+                  invoice.voucherType == 'Sales' ? 'ESTIMATE' : 'PURCHASE VOUCHER',
                   style: pw.TextStyle(
                     fontSize: 20,
                     fontWeight: pw.FontWeight.bold,
@@ -219,8 +219,8 @@ class InvoicePrinter {
                   (index) {
                     final item = invoice.items[index];
                     final desc = item.isReplacement ? '${item.itemName}  [REPLACEMENT]' : item.itemName;
-                    final rateStr = item.isReplacement ? '₹ 0.00' : _currencyFormat.format(item.rate);
-                    final amtStr = item.isReplacement ? '₹ 0.00' : _currencyFormat.format(item.amount);
+                    final rateStr = item.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(item.rate);
+                    final amtStr = item.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(item.amount);
                     return [
                       '${index + 1}',
                       desc,
@@ -252,6 +252,7 @@ class InvoicePrinter {
                     width: 220,
                     child: pw.Column(
                       children: [
+                        _buildTotalRow('Total Pairs', invoice.totalPairs.toStringAsFixed(2)),
                         _buildTotalRow('Subtotal', _currencyFormat.format(invoice.subtotal)),
                         if (invoice.discount > 0)
                           _buildTotalRow('Discount', '- ${_currencyFormat.format(invoice.discount)}', isBold: true),
@@ -276,13 +277,12 @@ class InvoicePrinter {
               ],
 
               if (profile.termsAndConditions != null && profile.termsAndConditions!.isNotEmpty) ...[
-                pw.Spacer(),
+                pw.SizedBox(height: 8),
                 pw.Divider(thickness: 0.5),
                 pw.Text('Terms & Conditions:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
                 pw.Text(profile.termsAndConditions!, style: const pw.TextStyle(fontSize: 8)),
               ],
-            ],
-          );
+          ];
         },
       ),
     );
@@ -392,7 +392,7 @@ class InvoicePrinter {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Discount:', style: pw.TextStyle(fontSize: fontSize)),
-                    pw.Text('-₹${MoneyPrecision.format(invoice.discount)}', style: pw.TextStyle(fontSize: fontSize)),
+                    pw.Text('-Rs.${MoneyPrecision.format(invoice.discount)}', style: pw.TextStyle(fontSize: fontSize)),
                   ],
                 ),
                 pw.Text('-' * (paperWidthMm == 58 ? 32 : 45), style: pw.TextStyle(fontSize: fontSize)),
@@ -402,8 +402,15 @@ class InvoicePrinter {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
+                  pw.Text('PAIRS:', style: pw.TextStyle(fontSize: fontSize, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(invoice.totalPairs.toStringAsFixed(2), style: pw.TextStyle(fontSize: fontSize, fontWeight: pw.FontWeight.bold)),
+                ],
+              ),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
                   pw.Text('TOTAL:', style: pw.TextStyle(fontSize: headerFontSize - 1, fontWeight: pw.FontWeight.bold)),
-                  pw.Text('₹${MoneyPrecision.format(invoice.grandTotal)}', style: pw.TextStyle(fontSize: headerFontSize - 1, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Rs.${MoneyPrecision.format(invoice.grandTotal)}', style: pw.TextStyle(fontSize: headerFontSize - 1, fontWeight: pw.FontWeight.bold)),
                 ],
               ),
               pw.SizedBox(height: 6),

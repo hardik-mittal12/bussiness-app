@@ -12,7 +12,7 @@ import 'print_preview_dialog.dart';
 class VoucherDetailDialog extends StatelessWidget {
   final String voucherId;
   final VoidCallback? onDeleted;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
 
   VoucherDetailDialog({super.key, required this.voucherId, this.onDeleted});
 
@@ -320,7 +320,7 @@ class VoucherDetailDialog extends StatelessWidget {
                     Expanded(
                       flex: 2,
                       child: Text(
-                        isRep ? '₹ 0.00' : _currencyFormat.format(item.tx.rate),
+                        isRep ? 'Rs. 0.00' : _currencyFormat.format(item.tx.rate),
                         style: TextStyle(color: isRep ? AppColors.warning : AppColors.textPrimary, fontSize: 13),
                         textAlign: TextAlign.right,
                       ),
@@ -328,7 +328,7 @@ class VoucherDetailDialog extends StatelessWidget {
                     Expanded(
                       flex: 3,
                       child: Text(
-                        isRep ? '₹ 0.00' : _currencyFormat.format(amount),
+                        isRep ? 'Rs. 0.00' : _currencyFormat.format(amount),
                         style: TextStyle(color: isRep ? AppColors.warning : AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.right,
                       ),

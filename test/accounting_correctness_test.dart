@@ -67,10 +67,10 @@ void main() {
     });
 
     test('calculateLineTotal rounds to nearest paise', () {
-      // 3 units at ₹33.33 = ₹99.99 (exact)
+      // 3 units at Rs.33.33 = Rs.99.99 (exact)
       expect(MoneyPrecision.calculateLineTotal(3, 33.33), equals(99.99));
 
-      // 2.5 kg at ₹10.50 = ₹26.25
+      // 2.5 kg at Rs.10.50 = Rs.26.25
       expect(MoneyPrecision.calculateLineTotal(2.5, 10.50), equals(26.25));
     });
 
@@ -105,7 +105,7 @@ void main() {
     });
 
     test('Receipt reduces customer debit balance', () async {
-      // First create a sales invoice of ₹5000
+      // First create a sales invoice of Rs.5000
       await engine.createVoucher(
         voucherType: 'Sales',
         date: DateTime(2025, 6, 1),
@@ -116,7 +116,7 @@ void main() {
         allowNegativeStock: true,
       );
 
-      // Then record receipt of ₹3000
+      // Then record receipt of Rs.3000
       await engine.createVoucher(
         voucherType: 'Receipt',
         date: DateTime(2025, 6, 10),
@@ -128,10 +128,10 @@ void main() {
 
       final custBalance = await engine.getLedgerBalance('customer1');
       expect(custBalance, equals(2000.0),
-          reason: 'Customer balance must be ₹5000 (invoice) - ₹3000 (receipt) = ₹2000');
+          reason: 'Customer balance must be Rs.5000 (invoice) - Rs.3000 (receipt) = Rs.2000');
 
       final cashBalance = await engine.getLedgerBalance('cash');
-      // Cash opening ₹10000 + debit ₹3000 = ₹13000
+      // Cash opening Rs.10000 + debit Rs.3000 = Rs.13000
       expect(cashBalance, equals(13000.0));
     });
 
@@ -159,8 +159,8 @@ void main() {
 
   group('Stock quantity correctness', () {
     test('Opening stock + purchases - sales = correct closing stock', () async {
-      // Opening: 500 pens @ ₹5 each
-      // Purchase: 200 pens @ ₹5
+      // Opening: 500 pens @ Rs.5 each
+      // Purchase: 200 pens @ Rs.5
       await engine.createVoucher(
         voucherType: 'Purchase',
         date: DateTime(2025, 5, 1),
@@ -222,7 +222,7 @@ void main() {
           voucherType: 'Sales',
           date: DateTime(2025, 7, 1),
           entries: [
-            // Debit ₹1000 but credit only ₹999 — imbalanced!
+            // Debit Rs.1000 but credit only Rs.999 — imbalanced!
             VoucherEntriesCompanion.insert(id: 'ed1', voucherId: '', ledgerId: 'customer1', debitAmount: const drift.Value(1000.0), creditAmount: const drift.Value(0.0)),
             VoucherEntriesCompanion.insert(id: 'ed2', voucherId: '', ledgerId: 'sales', debitAmount: const drift.Value(0.0), creditAmount: const drift.Value(999.0)),
           ],
@@ -233,7 +233,7 @@ void main() {
     });
 
     test('Valid multi-line invoice with exact paise balances passes', () async {
-      // ₹33.33 + ₹66.67 = ₹100 exactly
+      // Rs.33.33 + Rs.66.67 = Rs.100 exactly
       final voucherNo = await engine.createVoucher(
         voucherType: 'Sales',
         date: DateTime(2025, 7, 2),

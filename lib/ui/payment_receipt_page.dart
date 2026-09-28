@@ -26,6 +26,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
   
   String? _selectedContactLedgerId; // Customer for Receipt, Supplier for Payment
   String? _selectedCashBankLedgerId; // Bank/Cash account
+  String _selectedPaymentMode = 'Cash';
   double _amount = 0.0;
   final TextEditingController _amountController = TextEditingController();
   String _narration = '';
@@ -39,8 +40,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
   List<Ledger> _cashBankLedgers = [];
   List<VoucherDetail> _recentVouchers = [];
   bool _isLoadingRecent = true;
+  bool _isSaving = false;
 
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   final DateFormat _dateFormat = DateFormat('dd-MMM-yyyy');
 
   @override
@@ -79,9 +81,17 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     // Generate Voucher number if not editing
     if (_editingVoucherId == null) {
       final vouchersList = await db.select(db.vouchers).get();
-      final count = vouchersList.where((v) => v.voucherType == _voucherType).length + 1;
       final prefix = _voucherType == 'Receipt' ? 'RCT' : 'PAY';
-      _voucherNumber = '$prefix-${DateTime.now().year}-${count.toString().padLeft(4, '0')}';
+      final numberPrefix = '$prefix-${DateTime.now().year}-';
+      final usedNumbers = vouchersList
+          .where((voucher) => voucher.voucherType == _voucherType)
+          .map((voucher) => voucher.voucherNumber)
+          .toSet();
+      var nextNumber = 1;
+      while (usedNumbers.contains('$numberPrefix${nextNumber.toString().padLeft(4, '0')}')) {
+        nextNumber++;
+      }
+      _voucherNumber = '$numberPrefix${nextNumber.toString().padLeft(4, '0')}';
     }
 
     setState(() {
@@ -146,6 +156,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       _narrationController.text = _narration;
       _referenceNumber = detail.voucher.referenceNumber ?? '';
       _refController.text = _referenceNumber;
+      _selectedPaymentMode = detail.voucher.paymentMode ?? 'Cash';
 
       // Extract amount and cash/bank ledger
       double amt = 0.0;
@@ -155,6 +166,10 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         }
         if (e.debitAmount > 0) amt = e.debitAmount;
         if (e.creditAmount > 0 && amt == 0) amt = e.creditAmount;
+      }
+      if (detail.voucher.paymentMode == null) {
+        final account = _cashBankLedgers.where((l) => l.id == _selectedCashBankLedgerId).firstOrNull;
+        _selectedPaymentMode = account?.groupId == 'bank_accounts' ? 'Bank Transfer' : 'Cash';
       }
       _amount = amt;
       _amountController.text = amt > 0 ? amt.toStringAsFixed(2) : '';
@@ -171,11 +186,13 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       _narrationController.text = '';
       _referenceNumber = '';
       _refController.text = '';
+      _selectedPaymentMode = 'Cash';
     });
     _loadInitialData();
   }
 
   Future<void> _submitVoucher() async {
+    if (_isSaving) return;
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
@@ -193,6 +210,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       return;
     }
 
+    setState(() => _isSaving = true);
     final engine = Provider.of<AccountingEngine>(context, listen: false);
     List<VoucherEntriesCompanion> entries = [];
 
@@ -243,6 +261,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         date: _voucherDate,
         narration: _narration,
         referenceNumber: _referenceNumber,
+        paymentMode: _selectedPaymentMode,
         entries: entries,
         existingVoucherId: _editingVoucherId,
       );
@@ -263,6 +282,8 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
           SnackBar(backgroundColor: AppColors.error, content: Text('Failed to save voucher: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -365,9 +386,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     final pdfService = PdfExportService(db);
 
     double amt = 0.0;
-    String mode = 'Cash';
+    var mode = detail.voucher.paymentMode ?? 'Cash';
     for (final e in detail.entries) {
-      if (e.ledgerId != detail.contactLedger.id) {
+      if (detail.voucher.paymentMode == null && e.ledgerId != detail.contactLedger.id) {
         final cashBank = _cashBankLedgers.where((l) => l.id == e.ledgerId).firstOrNull;
         if (cashBank != null && cashBank.groupId == 'bank_accounts') {
           mode = 'Bank Transfer / Online';
@@ -523,6 +544,28 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       ),
                       const SizedBox(height: 14),
 
+                      DropdownButtonFormField<String>(
+                        value: _selectedPaymentMode,
+                        dropdownColor: AppColors.surface,
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                        decoration: const InputDecoration(labelText: 'Payment Method', isDense: true),
+                        items: const [
+                          DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                          DropdownMenuItem(value: 'UPI', child: Text('UPI')),
+                          DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
+                          DropdownMenuItem(value: 'NEFT', child: Text('NEFT')),
+                          DropdownMenuItem(value: 'RTGS', child: Text('RTGS')),
+                          DropdownMenuItem(value: 'IMPS', child: Text('IMPS')),
+                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                          DropdownMenuItem(value: 'Card', child: Text('Card')),
+                          DropdownMenuItem(value: 'Other', child: Text('Other')),
+                        ],
+                        onChanged: _isSaving ? null : (value) {
+                          if (value != null) setState(() => _selectedPaymentMode = value);
+                        },
+                      ),
+                      const SizedBox(height: 14),
+
                       // Customer / Supplier selector
                       DropdownButtonFormField<String>(
                         value: _selectedContactLedgerId,
@@ -551,7 +594,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                         style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
-                          labelText: 'Amount (₹)',
+                          labelText: 'Amount (Rs.)',
                           hintText: '0.00',
                           isDense: true,
                         ),
@@ -608,7 +651,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                             _editingVoucherId != null ? 'Update $_voucherType Entry' : 'Post $_voucherType Entry',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
-                          onPressed: _submitVoucher,
+                          onPressed: _isSaving ? null : _submitVoucher,
                         ),
                       ),
                     ],

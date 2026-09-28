@@ -13,7 +13,7 @@ class PdfExportService {
   late final AccountingEngine engine;
   late final BusinessProfileService profileService;
 
-  static final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  static final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   static final DateFormat _dateFormat = DateFormat('dd-MMM-yyyy');
   static final DateFormat _dateTimeFormat = DateFormat('dd-MMM-yyyy hh:mm a');
 
@@ -129,8 +129,8 @@ class PdfExportService {
                       '${i + 1}',
                       it.isReplacement ? '${it.itemName} [REP]' : it.itemName,
                       it.quantity.toStringAsFixed(2),
-                      it.isReplacement ? '₹ 0.00' : _currencyFormat.format(it.rate),
-                      it.isReplacement ? '₹ 0.00' : _currencyFormat.format(it.amount),
+                      it.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(it.rate),
+                      it.isReplacement ? 'Rs. 0.00' : _currencyFormat.format(it.amount),
                     ];
                   }),
                   headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),

@@ -205,7 +205,8 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
 
     try {
       if (_importType == 'xml') {
-        final content = await File(_selectedImportFilePath!).readAsString();
+        final bytes = await File(_selectedImportFilePath!).readAsBytes();
+        final content = decodeXmlBytes(bytes);
         final res = await service.importTallyXml(content);
         setState(() => _importResult = res);
       } else if (_importType == 'tallybak') {
@@ -487,29 +488,35 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
               Row(
                 children: [
                   Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('CSV / TSV Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      value: 'csv',
-                      groupValue: _importType,
-                      activeColor: AppColors.primary,
-                      onChanged: (val) => setState(() {
-                        _importType = val!;
-                        _selectedImportFilePath = null;
-                        _csvPreview = null;
-                      }),
+                    child: Material(
+                      color: AppColors.surface,
+                      child: RadioListTile<String>(
+                        title: const Text('CSV / TSV Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        value: 'csv',
+                        groupValue: _importType,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) => setState(() {
+                          _importType = val!;
+                          _selectedImportFilePath = null;
+                          _csvPreview = null;
+                        }),
+                      ),
                     ),
                   ),
                   Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('Tally XML Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      value: 'xml',
-                      groupValue: _importType,
-                      activeColor: AppColors.primary,
-                      onChanged: (val) => setState(() {
-                        _importType = val!;
-                        _selectedImportFilePath = null;
-                        _csvPreview = null;
-                      }),
+                    child: Material(
+                      color: AppColors.surface,
+                      child: RadioListTile<String>(
+                        title: const Text('Tally XML Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        value: 'xml',
+                        groupValue: _importType,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) => setState(() {
+                          _importType = val!;
+                          _selectedImportFilePath = null;
+                          _csvPreview = null;
+                        }),
+                      ),
                     ),
                   ),
                 ],

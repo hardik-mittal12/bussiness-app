@@ -19,7 +19,7 @@ class ReportViewerPage extends StatefulWidget {
 
 class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹ ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
 
   DateTime _selectedDaybookDate = DateTime.now();
   bool _enableDaybookDateFilter = false;

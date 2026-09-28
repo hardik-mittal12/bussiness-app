@@ -82,6 +82,29 @@ void main() {
         ],
       );
 
+      await engine.createVoucher(
+        voucherNumber: 'RCT-2026-PERSIST-1',
+        voucherType: 'Receipt',
+        date: DateTime(2026, 4, 16),
+        paymentMode: 'UPI',
+        entries: [
+          VoucherEntriesCompanion.insert(
+            id: 'e_rp1',
+            voucherId: '',
+            ledgerId: 'cash',
+            debitAmount: const drift.Value(300.0),
+            creditAmount: const drift.Value(0.0),
+          ),
+          VoucherEntriesCompanion.insert(
+            id: 'e_rp2',
+            voucherId: '',
+            ledgerId: 'cust_persist_1',
+            debitAmount: const drift.Value(0.0),
+            creditAmount: const drift.Value(300.0),
+          ),
+        ],
+      );
+
       // Update business profile
       await profileService.updateProfile(
         companyName: 'Persistent Enterprises Inc',
@@ -107,7 +130,12 @@ void main() {
       final profileService2 = BusinessProfileService(db2);
 
       // Verify schema version is intact
-      expect(db2.schemaVersion, equals(5));
+      expect(db2.schemaVersion, equals(6));
+
+      final receipt = await (db2.select(db2.vouchers)
+        ..where((voucher) => voucher.voucherNumber.equals('RCT-2026-PERSIST-1')))
+          .getSingle();
+      expect(receipt.paymentMode, equals('UPI'));
 
       // Verify customer exists with intact data
       final cust = await (db2.select(db2.ledgers)..where((t) => t.id.equals('cust_persist_1'))).getSingleOrNull();
@@ -136,7 +164,7 @@ void main() {
     }
   });
 
-  test('Database correctly runs v4 -> v5 migration and preserves existing records', () async {
+  test('Database correctly runs v4 -> v6 migration and preserves existing records', () async {
     // 1. Create a simulated v4 database directly via sqlite3
     {
       final rawDb = sqlite3.open(dbFile.path);
@@ -170,8 +198,8 @@ void main() {
     {
       final appDb = AppDatabase(NativeDatabase(dbFile));
 
-      // Verify migration completed to schemaVersion 5
-      expect(appDb.schemaVersion, equals(5));
+      // Verify migration completed to schemaVersion 6
+      expect(appDb.schemaVersion, equals(6));
 
       // Verify v4 customer survived and new v5 column is_deleted defaulted to false
       final cust = await (appDb.select(appDb.ledgers)..where((t) => t.id.equals('cust_v4'))).getSingle();

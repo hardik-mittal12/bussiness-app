@@ -58,6 +58,7 @@ class Vouchers extends Table {
   DateTimeColumn get date => dateTime()();
   TextColumn get narration => text().nullable()();
   TextColumn get referenceNumber => text().nullable()();
+  TextColumn get paymentMode => text().nullable()();
   TextColumn get status => text().withDefault(const Constant('POSTED'))(); // 'POSTED', 'CANCELLED', 'REVERSED', 'DRAFT'
   RealColumn get discountAmount => real().withDefault(const Constant(0.0))();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
@@ -163,7 +164,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   static QueryExecutor _openConnection() => openConnection();
 
@@ -223,6 +224,9 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(vouchers, vouchers.discountAmount);
             await m.addColumn(stockTransactions, stockTransactions.isReplacement);
             await m.addColumn(businessProfiles, businessProfiles.logoPath);
+          }
+          if (from < 6) {
+            await m.addColumn(vouchers, vouchers.paymentMode);
           }
         },
         onCreate: (m) async {

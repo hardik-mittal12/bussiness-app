@@ -1617,6 +1617,17 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _paymentModeMeta = const VerificationMeta(
+    'paymentMode',
+  );
+  @override
+  late final GeneratedColumn<String> paymentMode = GeneratedColumn<String>(
+    'payment_mode',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -1675,6 +1686,7 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
     date,
     narration,
     referenceNumber,
+    paymentMode,
     status,
     discountAmount,
     updatedAt,
@@ -1751,6 +1763,15 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
         ),
       );
     }
+    if (data.containsKey('payment_mode')) {
+      context.handle(
+        _paymentModeMeta,
+        paymentMode.isAcceptableOrUnknown(
+          data['payment_mode']!,
+          _paymentModeMeta,
+        ),
+      );
+    }
     if (data.containsKey('status')) {
       context.handle(
         _statusMeta,
@@ -1815,6 +1836,10 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
         DriftSqlType.string,
         data['${effectivePrefix}reference_number'],
       ),
+      paymentMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payment_mode'],
+      ),
       status: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}status'],
@@ -1848,6 +1873,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
   final DateTime date;
   final String? narration;
   final String? referenceNumber;
+  final String? paymentMode;
   final String status;
   final double discountAmount;
   final DateTime updatedAt;
@@ -1860,6 +1886,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     required this.date,
     this.narration,
     this.referenceNumber,
+    this.paymentMode,
     required this.status,
     required this.discountAmount,
     required this.updatedAt,
@@ -1878,6 +1905,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     }
     if (!nullToAbsent || referenceNumber != null) {
       map['reference_number'] = Variable<String>(referenceNumber);
+    }
+    if (!nullToAbsent || paymentMode != null) {
+      map['payment_mode'] = Variable<String>(paymentMode);
     }
     map['status'] = Variable<String>(status);
     map['discount_amount'] = Variable<double>(discountAmount);
@@ -1899,6 +1929,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       referenceNumber: referenceNumber == null && nullToAbsent
           ? const Value.absent()
           : Value(referenceNumber),
+      paymentMode: paymentMode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(paymentMode),
       status: Value(status),
       discountAmount: Value(discountAmount),
       updatedAt: Value(updatedAt),
@@ -1919,6 +1952,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       date: serializer.fromJson<DateTime>(json['date']),
       narration: serializer.fromJson<String?>(json['narration']),
       referenceNumber: serializer.fromJson<String?>(json['referenceNumber']),
+      paymentMode: serializer.fromJson<String?>(json['paymentMode']),
       status: serializer.fromJson<String>(json['status']),
       discountAmount: serializer.fromJson<double>(json['discountAmount']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -1936,6 +1970,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       'date': serializer.toJson<DateTime>(date),
       'narration': serializer.toJson<String?>(narration),
       'referenceNumber': serializer.toJson<String?>(referenceNumber),
+      'paymentMode': serializer.toJson<String?>(paymentMode),
       'status': serializer.toJson<String>(status),
       'discountAmount': serializer.toJson<double>(discountAmount),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -1951,6 +1986,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     DateTime? date,
     Value<String?> narration = const Value.absent(),
     Value<String?> referenceNumber = const Value.absent(),
+    Value<String?> paymentMode = const Value.absent(),
     String? status,
     double? discountAmount,
     DateTime? updatedAt,
@@ -1965,6 +2001,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     referenceNumber: referenceNumber.present
         ? referenceNumber.value
         : this.referenceNumber,
+    paymentMode: paymentMode.present ? paymentMode.value : this.paymentMode,
     status: status ?? this.status,
     discountAmount: discountAmount ?? this.discountAmount,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -1987,6 +2024,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       referenceNumber: data.referenceNumber.present
           ? data.referenceNumber.value
           : this.referenceNumber,
+      paymentMode: data.paymentMode.present
+          ? data.paymentMode.value
+          : this.paymentMode,
       status: data.status.present ? data.status.value : this.status,
       discountAmount: data.discountAmount.present
           ? data.discountAmount.value
@@ -2006,6 +2046,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
           ..write('date: $date, ')
           ..write('narration: $narration, ')
           ..write('referenceNumber: $referenceNumber, ')
+          ..write('paymentMode: $paymentMode, ')
           ..write('status: $status, ')
           ..write('discountAmount: $discountAmount, ')
           ..write('updatedAt: $updatedAt, ')
@@ -2023,6 +2064,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     date,
     narration,
     referenceNumber,
+    paymentMode,
     status,
     discountAmount,
     updatedAt,
@@ -2039,6 +2081,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
           other.date == this.date &&
           other.narration == this.narration &&
           other.referenceNumber == this.referenceNumber &&
+          other.paymentMode == this.paymentMode &&
           other.status == this.status &&
           other.discountAmount == this.discountAmount &&
           other.updatedAt == this.updatedAt &&
@@ -2053,6 +2096,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
   final Value<DateTime> date;
   final Value<String?> narration;
   final Value<String?> referenceNumber;
+  final Value<String?> paymentMode;
   final Value<String> status;
   final Value<double> discountAmount;
   final Value<DateTime> updatedAt;
@@ -2066,6 +2110,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     this.date = const Value.absent(),
     this.narration = const Value.absent(),
     this.referenceNumber = const Value.absent(),
+    this.paymentMode = const Value.absent(),
     this.status = const Value.absent(),
     this.discountAmount = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2080,6 +2125,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     required DateTime date,
     this.narration = const Value.absent(),
     this.referenceNumber = const Value.absent(),
+    this.paymentMode = const Value.absent(),
     this.status = const Value.absent(),
     this.discountAmount = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2097,6 +2143,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     Expression<DateTime>? date,
     Expression<String>? narration,
     Expression<String>? referenceNumber,
+    Expression<String>? paymentMode,
     Expression<String>? status,
     Expression<double>? discountAmount,
     Expression<DateTime>? updatedAt,
@@ -2111,6 +2158,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
       if (date != null) 'date': date,
       if (narration != null) 'narration': narration,
       if (referenceNumber != null) 'reference_number': referenceNumber,
+      if (paymentMode != null) 'payment_mode': paymentMode,
       if (status != null) 'status': status,
       if (discountAmount != null) 'discount_amount': discountAmount,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -2127,6 +2175,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     Value<DateTime>? date,
     Value<String?>? narration,
     Value<String?>? referenceNumber,
+    Value<String?>? paymentMode,
     Value<String>? status,
     Value<double>? discountAmount,
     Value<DateTime>? updatedAt,
@@ -2141,6 +2190,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
       date: date ?? this.date,
       narration: narration ?? this.narration,
       referenceNumber: referenceNumber ?? this.referenceNumber,
+      paymentMode: paymentMode ?? this.paymentMode,
       status: status ?? this.status,
       discountAmount: discountAmount ?? this.discountAmount,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -2173,6 +2223,9 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     if (referenceNumber.present) {
       map['reference_number'] = Variable<String>(referenceNumber.value);
     }
+    if (paymentMode.present) {
+      map['payment_mode'] = Variable<String>(paymentMode.value);
+    }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
@@ -2201,6 +2254,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
           ..write('date: $date, ')
           ..write('narration: $narration, ')
           ..write('referenceNumber: $referenceNumber, ')
+          ..write('paymentMode: $paymentMode, ')
           ..write('status: $status, ')
           ..write('discountAmount: $discountAmount, ')
           ..write('updatedAt: $updatedAt, ')
@@ -5651,6 +5705,7 @@ typedef $$VouchersTableCreateCompanionBuilder =
       required DateTime date,
       Value<String?> narration,
       Value<String?> referenceNumber,
+      Value<String?> paymentMode,
       Value<String> status,
       Value<double> discountAmount,
       Value<DateTime> updatedAt,
@@ -5666,6 +5721,7 @@ typedef $$VouchersTableUpdateCompanionBuilder =
       Value<DateTime> date,
       Value<String?> narration,
       Value<String?> referenceNumber,
+      Value<String?> paymentMode,
       Value<String> status,
       Value<double> discountAmount,
       Value<DateTime> updatedAt,
@@ -5714,6 +5770,11 @@ class $$VouchersTableFilterComposer
 
   ColumnFilters<String> get referenceNumber => $composableBuilder(
     column: $table.referenceNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get paymentMode => $composableBuilder(
+    column: $table.paymentMode,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5782,6 +5843,11 @@ class $$VouchersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get paymentMode => $composableBuilder(
+    column: $table.paymentMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
@@ -5841,6 +5907,11 @@ class $$VouchersTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get paymentMode => $composableBuilder(
+    column: $table.paymentMode,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
@@ -5891,6 +5962,7 @@ class $$VouchersTableTableManager
                 Value<DateTime> date = const Value.absent(),
                 Value<String?> narration = const Value.absent(),
                 Value<String?> referenceNumber = const Value.absent(),
+                Value<String?> paymentMode = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<double> discountAmount = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -5904,6 +5976,7 @@ class $$VouchersTableTableManager
                 date: date,
                 narration: narration,
                 referenceNumber: referenceNumber,
+                paymentMode: paymentMode,
                 status: status,
                 discountAmount: discountAmount,
                 updatedAt: updatedAt,
@@ -5919,6 +5992,7 @@ class $$VouchersTableTableManager
                 required DateTime date,
                 Value<String?> narration = const Value.absent(),
                 Value<String?> referenceNumber = const Value.absent(),
+                Value<String?> paymentMode = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<double> discountAmount = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -5932,6 +6006,7 @@ class $$VouchersTableTableManager
                 date: date,
                 narration: narration,
                 referenceNumber: referenceNumber,
+                paymentMode: paymentMode,
                 status: status,
                 discountAmount: discountAmount,
                 updatedAt: updatedAt,

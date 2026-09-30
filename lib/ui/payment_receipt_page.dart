@@ -72,11 +72,13 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     final contactLedgers = await (db.select(db.ledgers)
       ..where((t) => t.groupId.equals(contactGroup) & (t.isDeleted.equals(false) | t.id.equals(_selectedContactLedgerId ?? ''))))
       .get();
+    contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     // Load Cash and Bank Ledgers
     final cashBankLedgers = await (db.select(db.ledgers)
       ..where((t) => t.groupId.equals('cash_in_hand') | t.groupId.equals('bank_accounts')))
       .get();
+    cashBankLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     // Generate Voucher number if not editing
     if (_editingVoucherId == null) {

@@ -23,6 +23,8 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
   late Stream<List<Ledger>> _creditorsStream;
   final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   final Uuid uuid = const Uuid();
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -30,13 +32,20 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
     _tabController = TabController(length: 2, vsync: this);
     final db = Provider.of<AppDatabase>(context, listen: false);
     
-    // Only query active, non-deleted ledgers
-    _debtorsStream = (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors') & t.isDeleted.equals(false))).watch();
-    _creditorsStream = (db.select(db.ledgers)..where((t) => t.groupId.equals('creditors') & t.isDeleted.equals(false))).watch();
+    // Query active, non-deleted ledgers ordered alphabetically A-Z
+    _debtorsStream = (db.select(db.ledgers)
+      ..where((t) => t.groupId.equals('debtors') & t.isDeleted.equals(false))
+      ..orderBy([(t) => drift.OrderingTerm.asc(t.name.lower())]))
+      .watch();
+    _creditorsStream = (db.select(db.ledgers)
+      ..where((t) => t.groupId.equals('creditors') & t.isDeleted.equals(false))
+      ..orderBy([(t) => drift.OrderingTerm.asc(t.name.lower())]))
+      .watch();
   }
 
   @override
   void dispose() {
+    _searchController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -149,6 +158,141 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                     }
                   },
                   child: const Text('Save Account'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog to Edit/Alter an Account
+  void _showEditLedgerDialog(BuildContext context, Ledger ledger) {
+    final db = Provider.of<AppDatabase>(context, listen: false);
+    final formKey = GlobalKey<FormState>();
+
+    String name = ledger.name;
+    String phone = ledger.phone ?? '';
+    String address = ledger.address ?? '';
+    String taxNumber = ledger.taxNumber ?? '';
+    double openingBalance = ledger.openingBalance;
+    String selectedGroupId = ledger.groupId;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.surface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Row(
+                children: [
+                  const Icon(Icons.edit_note_rounded, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 8),
+                  Text('Edit Account (${ledger.name})',
+                      style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          value: selectedGroupId,
+                          decoration: const InputDecoration(labelText: 'Account Category / Group'),
+                          items: const [
+                            DropdownMenuItem(value: 'debtors', child: Text('Customer (Sundry Debtors)')),
+                            DropdownMenuItem(value: 'creditors', child: Text('Supplier (Sundry Creditors)')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) setDialogState(() => selectedGroupId = val);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: name,
+                          decoration: const InputDecoration(labelText: 'Account Name *'),
+                          validator: (val) => val == null || val.trim().isEmpty ? 'Please enter a name' : null,
+                          onSaved: (val) => name = val!.trim(),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: openingBalance.toStringAsFixed(2),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(labelText: 'Opening Balance (Rs.)'),
+                          onSaved: (val) => openingBalance = double.tryParse(val ?? '0') ?? 0.0,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: phone,
+                          decoration: const InputDecoration(labelText: 'Phone Number'),
+                          onSaved: (val) => phone = val?.trim() ?? '',
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: address,
+                          decoration: const InputDecoration(labelText: 'Address'),
+                          onSaved: (val) => address = val?.trim() ?? '',
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: taxNumber,
+                          decoration: const InputDecoration(labelText: 'GSTIN / Tax Number'),
+                          onSaved: (val) => taxNumber = val?.trim() ?? '',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      formKey.currentState!.save();
+                      try {
+                        await (db.update(db.ledgers)..where((t) => t.id.equals(ledger.id))).write(
+                          LedgersCompanion(
+                            name: drift.Value(name),
+                            groupId: drift.Value(selectedGroupId),
+                            openingBalance: drift.Value(openingBalance),
+                            phone: drift.Value(phone.isNotEmpty ? phone : null),
+                            address: drift.Value(address.isNotEmpty ? address : null),
+                            taxNumber: drift.Value(taxNumber.isNotEmpty ? taxNumber : null),
+                          ),
+                        );
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.success,
+                              content: Text('Account "$name" updated successfully'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.error,
+                              content: Text('Failed to update account: $e'),
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  },
+                  child: const Text('Save Changes'),
                 ),
               ],
             );
@@ -281,11 +425,55 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildLedgerList(_debtorsStream),
-          _buildLedgerList(_creditorsStream),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+            child: SizedBox(
+              height: 42,
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Search accounts by name, phone, GSTIN, or address...',
+                  prefixIcon: const Icon(Icons.search, size: 20, color: AppColors.textMuted),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18, color: AppColors.textMuted),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  filled: true,
+                  fillColor: AppColors.surface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                ),
+                onChanged: (val) {
+                  setState(() => _searchQuery = val.trim().toLowerCase());
+                },
+              ),
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildLedgerList(_debtorsStream),
+                _buildLedgerList(_creditorsStream),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -304,10 +492,25 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
           return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
         }
 
-        final ledgers = snapshot.data ?? [];
+        final rawLedgers = snapshot.data ?? [];
+        final ledgers = rawLedgers.where((l) {
+          if (_searchQuery.isEmpty) return true;
+          final q = _searchQuery.toLowerCase();
+          return l.name.toLowerCase().contains(q) ||
+              (l.phone?.toLowerCase().contains(q) ?? false) ||
+              (l.taxNumber?.toLowerCase().contains(q) ?? false) ||
+              (l.address?.toLowerCase().contains(q) ?? false);
+        }).toList();
+        ledgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
         if (ledgers.isEmpty) {
-          return const Center(
-            child: Text('No active accounts found in this category.', style: TextStyle(color: AppColors.textMuted)),
+          return Center(
+            child: Text(
+              _searchQuery.isNotEmpty
+                  ? 'No accounts match "$_searchQuery"'
+                  : 'No active accounts found in this category.',
+              style: const TextStyle(color: AppColors.textMuted),
+            ),
           );
         }
 
@@ -377,13 +580,18 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                             ),
                           ],
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, color: AppColors.primary, size: 20),
+                          tooltip: 'Edit / Alter Account',
+                          onPressed: () => _showEditLedgerDialog(context, ledger),
+                        ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
                           tooltip: 'Delete / Deactivate Account',
                           onPressed: () => _confirmDeleteLedger(context, ledger),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
                       ],
                     ),

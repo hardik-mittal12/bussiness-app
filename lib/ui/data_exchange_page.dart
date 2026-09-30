@@ -491,6 +491,8 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
                     child: Material(
                       color: AppColors.surface,
                       child: RadioListTile<String>(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                         title: const Text('CSV / TSV Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         value: 'csv',
                         groupValue: _importType,
@@ -507,6 +509,8 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
                     child: Material(
                       color: AppColors.surface,
                       child: RadioListTile<String>(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                         title: const Text('Tally XML Import', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         value: 'xml',
                         groupValue: _importType,
@@ -529,6 +533,7 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _csvTargetType,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
                         style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                         decoration: const InputDecoration(labelText: 'Import Target', isDense: true),
@@ -545,6 +550,7 @@ class _DataExchangePageState extends State<DataExchangePage> with SingleTickerPr
                     Expanded(
                       child: DropdownButtonFormField<DuplicateHandling>(
                         value: _duplicateHandling,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
                         style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                         decoration: const InputDecoration(labelText: 'Duplicate Handling', isDense: true),

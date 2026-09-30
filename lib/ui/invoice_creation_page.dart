@@ -97,6 +97,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
   final FocusNode _contactSearchFocusNode = FocusNode();
 
   String _invoiceType = 'Sales'; // 'Sales' or 'Purchase'
+  String _paymentMode = 'Debt'; // 'Debt' or 'Cash'
   String _invoiceNumber = '';
   DateTime _invoiceDate = DateTime.now();
   String? _selectedLedgerId; // Customer for Sales, Supplier for Purchase
@@ -152,6 +153,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       if (!mounted) return;
       if (detail != null) {
         _invoiceType = detail.voucher.voucherType;
+        _paymentMode = detail.voucher.paymentMode ?? 'Debt';
         _invoiceNumber = detail.voucher.voucherNumber;
         _invoiceDate = detail.voucher.date;
         _narration = detail.voucher.narration ?? '';
@@ -173,9 +175,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           t.id.equals(_selectedLedgerId!)),
                 ))
                 .get();
+        contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
         // Load inventory items
         final allItems = await db.select(db.stockItems).get();
+        allItems.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         final stockStatus = await engine.getStockSummary();
         if (!mounted) return;
 
@@ -231,8 +235,10 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               (t) => t.groupId.equals(targetGroup) & t.isDeleted.equals(false),
             ))
             .get();
+    contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     final allItems = await db.select(db.stockItems).get();
+    allItems.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final stockStatus = await engine.getStockSummary();
     if (!mounted) return;
 
@@ -254,6 +260,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     if (type != null && type != _invoiceType) {
       setState(() {
         _invoiceType = type;
+        _paymentMode = 'Debt';
         _selectedLedgerId = null;
         _contactSearchController.clear();
         _rows = [InvoiceRowItem()];
@@ -342,6 +349,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
       sgst: _sgst,
       grandTotal: _grandTotal,
       narration: _narration,
+      paymentMode: _paymentMode,
     );
   }
 
@@ -499,15 +507,40 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     List<VoucherEntriesCompanion> entries = [];
 
     if (_invoiceType == 'Sales') {
-      entries.add(
-        VoucherEntriesCompanion.insert(
-          id: uuid.v4(),
-          voucherId: '',
-          ledgerId: _selectedLedgerId!,
-          debitAmount: drift.Value(grandTotal),
-          creditAmount: const drift.Value(0.0),
-        ),
-      );
+      if (_paymentMode == 'Cash') {
+        // Immediate Cash Sale: Cash is debited immediately (customer does not accumulate debt, no separate receipt needed)
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: 'cash',
+            debitAmount: drift.Value(grandTotal),
+            creditAmount: const drift.Value(0.0),
+          ),
+        );
+
+        // Record customer in entries so contact and bill history is linked, but debit == credit so balance impact is 0
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: _selectedLedgerId!,
+            debitAmount: drift.Value(grandTotal),
+            creditAmount: drift.Value(grandTotal),
+          ),
+        );
+      } else {
+        // Debt / Credit Sale: Customer ledger is debited (adds up to customer debt; receipt voucher required later)
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: _selectedLedgerId!,
+            debitAmount: drift.Value(grandTotal),
+            creditAmount: const drift.Value(0.0),
+          ),
+        );
+      }
 
       entries.add(
         VoucherEntriesCompanion.insert(
@@ -543,6 +576,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         );
       }
     } else {
+      // Purchase Entry
       entries.add(
         VoucherEntriesCompanion.insert(
           id: uuid.v4(),
@@ -577,15 +611,40 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         );
       }
 
-      entries.add(
-        VoucherEntriesCompanion.insert(
-          id: uuid.v4(),
-          voucherId: '',
-          ledgerId: _selectedLedgerId!,
-          debitAmount: const drift.Value(0.0),
-          creditAmount: drift.Value(grandTotal),
-        ),
-      );
+      if (_paymentMode == 'Cash') {
+        // Immediate Cash Purchase: Cash is credited directly
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: 'cash',
+            debitAmount: const drift.Value(0.0),
+            creditAmount: drift.Value(grandTotal),
+          ),
+        );
+
+        // Record supplier in entries so contact and bill history is linked, but credit == debit so balance impact is 0
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: _selectedLedgerId!,
+            debitAmount: drift.Value(grandTotal),
+            creditAmount: drift.Value(grandTotal),
+          ),
+        );
+      } else {
+        // Debt / Credit Purchase: Supplier ledger is credited (adds to supplier debt, payment voucher required later)
+        entries.add(
+          VoucherEntriesCompanion.insert(
+            id: uuid.v4(),
+            voucherId: '',
+            ledgerId: _selectedLedgerId!,
+            debitAmount: const drift.Value(0.0),
+            creditAmount: drift.Value(grandTotal),
+          ),
+        );
+      }
     }
 
     // Formulate Stock transactions
@@ -611,6 +670,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         date: _invoiceDate,
         narration: _narration,
         referenceNumber: _referenceNumber,
+        paymentMode: _paymentMode,
         discountAmount: _discountAmount,
         entries: entries,
         stockTransactions: stockTxs,
@@ -647,6 +707,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             _referenceNumber = '';
             _discountAmount = 0.0;
             _discountController.text = '0.00';
+            _paymentMode = 'Debt';
           });
           _loadInitialData();
         }
@@ -871,29 +932,57 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
 
               const SizedBox(height: 10),
 
-              // Add row button
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primaryLight),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+              // Add row button & Create new item button
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primaryLight),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text(
+                      'Add Line Item',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _rows.add(InvoiceRowItem());
+                      });
+                    },
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  ElevatedButton.icon(
+                    key: const ValueKey('invoice-add-new-stock-item'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.surfaceSecondary,
+                      foregroundColor: AppColors.primary,
+                      elevation: 0,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_box_rounded, size: 18),
+                    label: const Text(
+                      '+ Create New Item',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () => _showQuickCreateItemDialog(context),
                   ),
-                ),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text(
-                  'Add Line Item',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _rows.add(InvoiceRowItem());
-                  });
-                },
+                ],
               ),
 
               const SizedBox(height: 16),
@@ -904,6 +993,236 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
           ),
         ),
       ),
+    );
+  }
+
+  // Quick dialog to add new stock item in-between making a bill without losing current bill progress
+  void _showQuickCreateItemDialog(BuildContext context, {int? targetRowIndex}) {
+    final db = Provider.of<AppDatabase>(context, listen: false);
+    final engine = Provider.of<AccountingEngine>(context, listen: false);
+    final formKey = GlobalKey<FormState>();
+
+    String name = '';
+    String sku = '';
+    String unit = 'pcs';
+    double salesRate = 0.0;
+    double purchaseRate = 0.0;
+    double openingQty = 0.0;
+    double openingRate = 0.0;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.surface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: const Row(
+                children: [
+                  Icon(Icons.inventory_2_rounded, color: AppColors.primary, size: 22),
+                  SizedBox(width: 8),
+                  Text(
+                    'Quick Add New Stock Item',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextFormField(
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Item Name *',
+                            hintText: 'e.g. Leather Formal Shoes Size 9',
+                          ),
+                          validator: (val) =>
+                              val == null || val.trim().isEmpty ? 'Please enter item name' : null,
+                          onSaved: (val) => name = val!.trim(),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                decoration: const InputDecoration(
+                                  labelText: 'SKU / Item Code',
+                                  hintText: 'e.g. SK-001',
+                                ),
+                                onSaved: (val) => sku = val?.trim() ?? '',
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                initialValue: unit,
+                                decoration: const InputDecoration(
+                                  labelText: 'Unit of Measure',
+                                  hintText: 'pcs, kg, box, mtr',
+                                ),
+                                onSaved: (val) => unit =
+                                    val?.trim().isNotEmpty == true ? val!.trim() : 'pcs',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
+                                onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
+                                onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(labelText: 'Opening Stock Qty'),
+                                onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(labelText: 'Cost Rate (Rs.)'),
+                                onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      formKey.currentState!.save();
+                      try {
+                        final newItemId = uuid.v4();
+                        final finalSku = sku.isNotEmpty
+                            ? sku
+                            : 'ITEM-${DateTime.now().millisecondsSinceEpoch % 100000}';
+
+                        await db.into(db.stockItems).insert(
+                          StockItemsCompanion.insert(
+                            id: newItemId,
+                            name: name,
+                            sku: drift.Value(finalSku),
+                            unitOfMeasure: drift.Value(unit),
+                            salesRate: drift.Value(salesRate),
+                            purchaseRate: drift.Value(purchaseRate),
+                            openingQuantity: drift.Value(openingQty),
+                            openingRate: drift.Value(openingRate),
+                            updatedAt: drift.Value(DateTime.now()),
+                            isSynced: const drift.Value(false),
+                          ),
+                        );
+
+                        // Reload all items & stock summary without losing current bill entries!
+                        final freshItems = await (db.select(db.stockItems)
+                          ..orderBy([(t) => drift.OrderingTerm.asc(t.name.lower())])).get();
+                        final freshStock = await engine.getStockSummary();
+
+                        final newlyAddedItem = freshItems.firstWhere((i) => i.id == newItemId);
+
+                        if (mounted) {
+                          setState(() {
+                            _allItems = freshItems;
+                            _allStockStatus = freshStock;
+
+                            // If target row is provided or the last row is empty, assign it
+                            int targetIdx = targetRowIndex ?? -1;
+                            if (targetIdx == -1) {
+                              targetIdx = _rows.indexWhere((r) => r.item == null);
+                            }
+                            if (targetIdx != -1 && targetIdx < _rows.length) {
+                              final row = _rows[targetIdx];
+                              row.item = newlyAddedItem;
+                              row.rate = _invoiceType == 'Sales'
+                                  ? (newlyAddedItem.salesRate > 0 ? newlyAddedItem.salesRate : 0.0)
+                                  : (newlyAddedItem.purchaseRate > 0 ? newlyAddedItem.purchaseRate : 0.0);
+                              row.originalRate = row.rate;
+                              if (row.quantity == 0) row.quantity = 1.0;
+                              row.qtyController.text = row.quantity.toString();
+                              row.rateController.text = row.rate.toStringAsFixed(2);
+                            } else {
+                              // Append a new row with this item
+                              final newRow = InvoiceRowItem(
+                                item: newlyAddedItem,
+                                quantity: 1.0,
+                                rate: _invoiceType == 'Sales' ? newlyAddedItem.salesRate : newlyAddedItem.purchaseRate,
+                                originalRate: _invoiceType == 'Sales' ? newlyAddedItem.salesRate : newlyAddedItem.purchaseRate,
+                              );
+                              newRow.qtyController.text = '1';
+                              newRow.rateController.text = newRow.rate.toStringAsFixed(2);
+                              _rows.add(newRow);
+                            }
+                          });
+
+                          Navigator.pop(dialogCtx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.success,
+                              content: Text('Item "$name" created and added to invoice!'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.error,
+                              content: Text('Failed to save item: $e'),
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  },
+                  child: const Text('Save & Add to Bill'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -922,6 +1241,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               // Invoice Type Selection
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: _invoiceType,
                   dropdownColor: AppColors.surface,
                   style: const TextStyle(
@@ -1012,7 +1332,76 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          // Payment Mode Selector (Cash vs Debt)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Bill Mode:',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              ChoiceChip(
+                key: const ValueKey('invoice-mode-debt'),
+                visualDensity: VisualDensity.compact,
+                avatar: Icon(
+                  Icons.credit_card_rounded,
+                  size: 14,
+                  color: _paymentMode == 'Debt' ? Colors.white : AppColors.textSecondary,
+                ),
+                label: const Text('Debt / Credit'),
+                selected: _paymentMode == 'Debt',
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.surfaceSecondary,
+                labelStyle: TextStyle(
+                  color: _paymentMode == 'Debt' ? Colors.white : AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                onSelected: (val) {
+                  if (val) setState(() => _paymentMode = 'Debt');
+                },
+              ),
+              ChoiceChip(
+                key: const ValueKey('invoice-mode-cash'),
+                visualDensity: VisualDensity.compact,
+                avatar: Icon(
+                  Icons.payments_outlined,
+                  size: 14,
+                  color: _paymentMode == 'Cash' ? Colors.white : AppColors.textSecondary,
+                ),
+                label: const Text('Cash (Paid)'),
+                selected: _paymentMode == 'Cash',
+                selectedColor: AppColors.success,
+                backgroundColor: AppColors.surfaceSecondary,
+                labelStyle: TextStyle(
+                  color: _paymentMode == 'Cash' ? Colors.white : AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                onSelected: (val) {
+                  if (val) setState(() => _paymentMode = 'Cash');
+                },
+              ),
+              Text(
+                _paymentMode == 'Cash'
+                    ? '• Cash Bill: Paid immediately; cash debited'
+                    : '• Debt Bill: Unpaid credit sale; adds to customer debt',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _paymentMode == 'Cash' ? AppColors.success : AppColors.textMuted,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               // Contact Ledger selector (Customers / Suppliers)
@@ -1477,32 +1866,35 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                 : AppColors.border,
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              row.isReplacement
-                                  ? Icons.check_circle_rounded
-                                  : Icons.radio_button_unchecked_rounded,
-                              size: 14,
-                              color: row.isReplacement
-                                  ? AppColors.warning
-                                  : AppColors.textMuted,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              row.isReplacement
-                                  ? 'Replace (Rs. 0)'
-                                  : 'Standard',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                row.isReplacement
+                                    ? Icons.check_circle_rounded
+                                    : Icons.radio_button_unchecked_rounded,
+                                size: 14,
                                 color: row.isReplacement
                                     ? AppColors.warning
-                                    : AppColors.textSecondary,
+                                    : AppColors.textMuted,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 4),
+                              Text(
+                                row.isReplacement
+                                    ? 'Replace (Rs. 0)'
+                                    : 'Standard',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: row.isReplacement
+                                      ? AppColors.warning
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1766,51 +2158,54 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceSecondary,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: AppColors.border),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<PrinterPaperSize>(
-                                  value: _selectedPaperSize,
-                                  dropdownColor: AppColors.surface,
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 12,
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceSecondary,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<PrinterPaperSize>(
+                                    isExpanded: true,
+                                    value: _selectedPaperSize,
+                                    dropdownColor: AppColors.surface,
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 12,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.arrow_drop_down,
+                                      color: AppColors.primary,
+                                      size: 18,
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: PrinterPaperSize.a4,
+                                        child: Text('A4 Standard Print / PDF'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: PrinterPaperSize.thermal58mm,
+                                        child: Text('58mm Thermal Receipt (POS)'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: PrinterPaperSize.thermal80mm,
+                                        child: Text('80mm Thermal Receipt (POS)'),
+                                      ),
+                                    ],
+                                    onChanged: _isSubmitting
+                                        ? null
+                                        : (val) {
+                                            if (val != null)
+                                              setState(
+                                                () => _selectedPaperSize = val,
+                                              );
+                                          },
                                   ),
-                                  icon: const Icon(
-                                    Icons.arrow_drop_down,
-                                    color: AppColors.primary,
-                                    size: 18,
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: PrinterPaperSize.a4,
-                                      child: Text('A4 Standard Print / PDF'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: PrinterPaperSize.thermal58mm,
-                                      child: Text('58mm Thermal Receipt (POS)'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: PrinterPaperSize.thermal80mm,
-                                      child: Text('80mm Thermal Receipt (POS)'),
-                                    ),
-                                  ],
-                                  onChanged: _isSubmitting
-                                      ? null
-                                      : (val) {
-                                          if (val != null)
-                                            setState(
-                                              () => _selectedPaperSize = val,
-                                            );
-                                        },
                                 ),
                               ),
                             ),
@@ -1840,11 +2235,13 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text(
-                              'Bill Discount (Rs.):',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
+                            const Expanded(
+                              child: Text(
+                                'Bill Discount (Rs.):',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                             SizedBox(
@@ -2060,12 +2457,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: isBold ? AppColors.textPrimary : AppColors.textSecondary,
-            fontSize: isBold ? 14 : 13,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isBold ? AppColors.textPrimary : AppColors.textSecondary,
+              fontSize: isBold ? 14 : 13,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            ),
           ),
         ),
         Text(

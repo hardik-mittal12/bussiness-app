@@ -12,6 +12,7 @@ void main() {
   late File dbFile;
 
   setUp(() async {
+    drift.driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     tempDir = await Directory.systemTemp.createTemp('tally_migration_test_');
     dbFile = File('${tempDir.path}/test_migration.sqlite');
   });
@@ -148,9 +149,9 @@ void main() {
       final stockSummary = await engine2.getStockSummaryForItem('item_persist_1');
       expect(stockSummary.quantity, equals(30.0)); // 50 - 20 = 30
 
-      // Verify customer ledger balance reflects the invoice
+      // Verify customer ledger balance reflects the invoice minus receipt (3600 - 300 = 3300)
       final balance = await engine2.getLedgerBalance('cust_persist_1');
-      expect(balance, equals(3600.0));
+      expect(balance, equals(3300.0));
 
       // Verify business profile survived restart
       final profile = await profileService2.getProfile();

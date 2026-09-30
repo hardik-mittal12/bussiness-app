@@ -20,6 +20,14 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
   late Future<List<StockStatus>> _stockSummaryFuture;
   final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
   final Uuid uuid = const Uuid();
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -394,8 +402,15 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
             return Center(child: Text('Error loading inventory: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
           }
 
-          final summary = snapshot.data ?? [];
-          double totalValuation = summary.fold(0.0, (sum, item) => sum + item.totalValue);
+          final rawSummary = snapshot.data ?? [];
+          final summary = rawSummary.where((item) {
+            if (_searchQuery.isEmpty) return true;
+            return item.name.toLowerCase().contains(_searchQuery) ||
+                   item.id.toLowerCase().contains(_searchQuery);
+          }).toList();
+          summary.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+          double totalValuation = rawSummary.fold(0.0, (sum, item) => sum + item.totalValue);
 
           return Padding(
             padding: const EdgeInsets.all(24.0),
@@ -440,9 +455,52 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                 
                 const SizedBox(height: 24),
                 
-                const Text(
-                  'Item Master Catalog',
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                // Title and Search Bar
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Item Master Catalog',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(
+                      width: 320,
+                      height: 38,
+                      child: TextField(
+                        controller: _searchController,
+                        style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                        decoration: InputDecoration(
+                          hintText: 'Search items by name or SKU...',
+                          prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textMuted),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 16, color: AppColors.textMuted),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          filled: true,
+                          fillColor: AppColors.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: AppColors.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: AppColors.border),
+                          ),
+                        ),
+                        onChanged: (val) {
+                          setState(() => _searchQuery = val.trim().toLowerCase());
+                        },
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
 
@@ -461,7 +519,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                       Expanded(flex: 2, child: Text('Stock Quantity', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
                       Expanded(flex: 2, child: Text('Average Cost', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
                       Expanded(flex: 2, child: Text('Total Value', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
-                      Expanded(flex: 1, child: Center(child: Text('Actions', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)))),
+                      SizedBox(width: 84, child: Center(child: Text('Actions', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)))),
                     ],
                   ),
                 ),
@@ -561,8 +619,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                                         style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
                                       ),
                                     ),
-                                    Expanded(
-                                      flex: 1,
+                                    SizedBox(
+                                      width: 84,
                                       child: Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [

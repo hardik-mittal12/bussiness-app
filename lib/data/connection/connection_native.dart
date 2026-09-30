@@ -13,6 +13,16 @@ QueryExecutor openConnection() {
 
     final dbPath = await getCustomDatabasePath('tally_ledger');
     final file = File(dbPath);
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (rawDb) {
+        try {
+          rawDb.execute('PRAGMA journal_mode = WAL;');
+          rawDb.execute('PRAGMA busy_timeout = 10000;');
+          rawDb.execute('PRAGMA foreign_keys = ON;');
+          rawDb.execute('PRAGMA synchronous = NORMAL;');
+        } catch (_) {}
+      },
+    );
   });
 }

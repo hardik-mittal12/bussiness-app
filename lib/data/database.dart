@@ -179,6 +179,12 @@ class AppDatabase extends _$AppDatabase {
             await customStatement('PRAGMA busy_timeout = 5000;');
           } catch (_) {}
 
+          try {
+            await customStatement('PRAGMA foreign_keys = ON;');
+            await customStatement('PRAGMA journal_mode = WAL;');
+            await customStatement('PRAGMA busy_timeout = 10000;');
+          } catch (_) {}
+
           // Ensure critical performance indexes exist
           await customStatement('CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers (date DESC);');
           await customStatement('CREATE INDEX IF NOT EXISTS idx_vouchers_type_date ON vouchers (voucher_type, date);');
@@ -190,18 +196,33 @@ class AppDatabase extends _$AppDatabase {
           await customStatement('CREATE INDEX IF NOT EXISTS idx_st_item ON stock_transactions (stock_item_id);');
           await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_group ON ledgers (group_id);');
           await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_deleted ON ledgers (is_deleted);');
+          await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_name ON ledgers (name);');
+          await customStatement('CREATE INDEX IF NOT EXISTS idx_stock_items_name ON stock_items (name);');
         },
         onUpgrade: (m, from, to) async {
+          Future<bool> columnExists(String table, String col) async {
+            try {
+              final result = await customSelect('PRAGMA table_info($table);').get();
+              return result.any((row) => row.data['name'] == col);
+            } catch (_) {
+              return false;
+            }
+          }
+
           if (from < 2) {
             await m.createTable(syncMetadata);
           }
           if (from < 3) {
             await m.createTable(invoiceSequences);
             await m.createTable(auditLogs);
-            await m.addColumn(vouchers, vouchers.status);
+            if (!await columnExists('vouchers', 'status')) {
+              await m.addColumn(vouchers, vouchers.status);
+            }
           }
           if (from < 4) {
-            await m.addColumn(vouchers, vouchers.financialYear);
+            if (!await columnExists('vouchers', 'financial_year')) {
+              await m.addColumn(vouchers, vouchers.financialYear);
+            }
             await m.createTable(businessProfiles);
 
             // Safely calculate each voucher's financial year from date and check for uniqueness conflicts
@@ -211,7 +232,7 @@ class AppDatabase extends _$AppDatabase {
               final fy = FinancialYearService.getFinancialYear(v.date);
               final key = '$fy:${v.voucherType}:${v.voucherNumber}';
               if (seen.contains(key)) {
-                throw StateError('Duplicate (financialYear, voucherType, voucherNumber) combination found during migration: $key. Migration stopped safely.');
+                continue; // Skip duplicate during migration without throwing
               }
               seen.add(key);
               await (update(vouchers)..where((t) => t.id.equals(v.id))).write(
@@ -220,13 +241,23 @@ class AppDatabase extends _$AppDatabase {
             }
           }
           if (from < 5) {
-            await m.addColumn(ledgers, ledgers.isDeleted);
-            await m.addColumn(vouchers, vouchers.discountAmount);
-            await m.addColumn(stockTransactions, stockTransactions.isReplacement);
-            await m.addColumn(businessProfiles, businessProfiles.logoPath);
+            if (!await columnExists('ledgers', 'is_deleted')) {
+              await m.addColumn(ledgers, ledgers.isDeleted);
+            }
+            if (!await columnExists('vouchers', 'discount_amount')) {
+              await m.addColumn(vouchers, vouchers.discountAmount);
+            }
+            if (!await columnExists('stock_transactions', 'is_replacement')) {
+              await m.addColumn(stockTransactions, stockTransactions.isReplacement);
+            }
+            if (!await columnExists('business_profiles', 'logo_path')) {
+              await m.addColumn(businessProfiles, businessProfiles.logoPath);
+            }
           }
           if (from < 6) {
-            await m.addColumn(vouchers, vouchers.paymentMode);
+            if (!await columnExists('vouchers', 'payment_mode')) {
+              await m.addColumn(vouchers, vouchers.paymentMode);
+            }
           }
         },
         onCreate: (m) async {

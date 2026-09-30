@@ -155,6 +155,23 @@ class AccountingEngine {
     int currentNext = 1;
     if (existingSeq != null) {
       currentNext = existingSeq.nextNumber;
+    }
+
+    // Advance sequence until a non-conflicting number is found (protects against imports & concurrency)
+    while (true) {
+      final candidateNo = '$prefix-$financialYear-${currentNext.toString().padLeft(4, '0')}';
+      final existingVoucher = await (db.select(db.vouchers)
+        ..where((t) => t.financialYear.equals(financialYear) &
+                       t.voucherType.equals(voucherType) &
+                       t.voucherNumber.equals(candidateNo)))
+        .getSingleOrNull();
+      if (existingVoucher == null) {
+        break;
+      }
+      currentNext++;
+    }
+
+    if (existingSeq != null) {
       await (db.update(db.invoiceSequences)..where((t) => t.id.equals(seqId))).write(
         InvoiceSequencesCompanion(nextNumber: Value(currentNext + 1)),
       );
@@ -164,7 +181,7 @@ class AccountingEngine {
           id: seqId,
           financialYear: financialYear,
           voucherType: voucherType,
-          nextNumber: const Value(2),
+          nextNumber: Value(currentNext + 1),
         ),
       );
     }
@@ -219,6 +236,44 @@ class AccountingEngine {
           finalVoucherNumber = await reserveNextInvoiceNumberInTx(voucherType, date);
         }
 
+        if (existingVoucherId != null) {
+          // Wipe old splits and stock transactions first so stock check reflects current state
+          await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(existingVoucherId))).go();
+          await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(existingVoucherId))).go();
+
+          // Update existing voucher
+          await (db.update(db.vouchers)..where((t) => t.id.equals(existingVoucherId))).write(
+            VouchersCompanion(
+              voucherNumber: Value(finalVoucherNumber),
+              voucherType: Value(voucherType),
+              financialYear: Value(financialYear),
+              date: Value(date),
+              narration: Value(narration),
+              referenceNumber: Value(referenceNumber),
+              paymentMode: Value(paymentMode),
+              discountAmount: Value(discountAmount ?? 0.0),
+              updatedAt: Value(DateTime.now()),
+              isSynced: const Value(false),
+            ),
+          );
+        } else {
+          // Insert new voucher header
+          await db.into(db.vouchers).insert(VouchersCompanion.insert(
+                id: voucherId,
+                voucherNumber: finalVoucherNumber,
+                voucherType: voucherType,
+                financialYear: Value(financialYear),
+                date: date,
+                narration: Value(narration),
+                referenceNumber: Value(referenceNumber),
+                paymentMode: Value(paymentMode),
+                discountAmount: Value(discountAmount ?? 0.0),
+                status: const Value('POSTED'),
+                updatedAt: Value(DateTime.now()),
+                isSynced: const Value(false),
+              ));
+        }
+
         // Stock Level Validation inside Transaction (Atomic)
         if (stockTransactions != null && !allowNegativeStock) {
           for (final st in stockTransactions) {
@@ -236,43 +291,6 @@ class AccountingEngine {
               }
             }
           }
-        }
-
-        if (existingVoucherId != null) {
-          // Update existing voucher
-          await (db.update(db.vouchers)..where((t) => t.id.equals(existingVoucherId))).write(
-            VouchersCompanion(
-              voucherNumber: Value(finalVoucherNumber),
-              voucherType: Value(voucherType),
-              financialYear: Value(financialYear),
-              date: Value(date),
-              narration: Value(narration),
-              referenceNumber: Value(referenceNumber),
-              paymentMode: Value(paymentMode),
-              discountAmount: Value(discountAmount ?? 0.0),
-              updatedAt: Value(DateTime.now()),
-              isSynced: const Value(false),
-            ),
-          );
-          // Wipe old splits and stock transactions
-          await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(existingVoucherId))).go();
-          await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(existingVoucherId))).go();
-        } else {
-          // Insert new voucher header
-          await db.into(db.vouchers).insert(VouchersCompanion.insert(
-                id: voucherId,
-                voucherNumber: finalVoucherNumber,
-                voucherType: voucherType,
-                financialYear: Value(financialYear),
-                date: date,
-                narration: Value(narration),
-                referenceNumber: Value(referenceNumber),
-                paymentMode: Value(paymentMode),
-                discountAmount: Value(discountAmount ?? 0.0),
-                status: const Value('POSTED'),
-                updatedAt: Value(DateTime.now()),
-                isSynced: const Value(false),
-              ));
         }
 
         // Insert Entries (inside transaction)
@@ -484,6 +502,7 @@ class AccountingEngine {
       summary.add(status);
     }
 
+    summary.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return summary;
   }
 
@@ -499,10 +518,11 @@ class AccountingEngine {
       'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
       'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
       'GROUP BY l.id, l.name, g.name '
-      'HAVING net_balance != 0.0;'
+      'HAVING net_balance != 0.0 '
+      'ORDER BY LOWER(l.name) ASC;'
     ).get();
 
-    return rows.map((r) {
+    final result = rows.map((r) {
       final netBal = (r.data['net_balance'] as num).toDouble();
       return TrialBalanceRow(
         ledgerId: r.data['ledger_id'] as String,
@@ -512,6 +532,9 @@ class AccountingEngine {
         creditBalance: netBal < 0 ? netBal.abs() : 0.0,
       );
     }).toList();
+
+    result.sort((a, b) => a.ledgerName.toLowerCase().compareTo(b.ledgerName.toLowerCase()));
+    return result;
   }
 
   // 9. Day Book with SQL Join and Keyset/Limit Pagination

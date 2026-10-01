@@ -124,6 +124,33 @@ class _ReportViewerPageState extends State<ReportViewerPage>
     }
   }
 
+  (String, Color, Color) _getDayBookBadgeDetails(Voucher voucher) {
+    if (voucher.status == 'CANCELLED') {
+      return ('CANCELLED', AppColors.textMuted, AppColors.surfaceSecondary);
+    }
+    final isCash = voucher.paymentMode?.toLowerCase() == 'cash';
+    switch (voucher.voucherType) {
+      case 'Sales':
+        if (isCash) {
+          return ('CASH SALE', AppColors.success, AppColors.successBg);
+        } else {
+          return ('CREDIT SALE', const Color(0xFF0D9488), const Color(0xFF0D9488).withOpacity(0.12));
+        }
+      case 'Purchase':
+        if (isCash) {
+          return ('CASH PURCHASE', AppColors.warning, AppColors.warningBg);
+        } else {
+          return ('CREDIT PURCHASE', Colors.deepOrange, Colors.deepOrange.withOpacity(0.12));
+        }
+      case 'Receipt':
+        return ('RECEIPT', AppColors.info, AppColors.infoBg);
+      case 'Payment':
+        return ('PAYMENT', Colors.purple, Colors.purple.withOpacity(0.12));
+      default:
+        return (voucher.voucherType.toUpperCase(), AppColors.info, AppColors.infoBg);
+    }
+  }
+
   Future<void> _exportCurrentTabPdf() async {
     final db = Provider.of<AppDatabase>(context, listen: false);
     final engine = Provider.of<AccountingEngine>(context, listen: false);
@@ -500,7 +527,6 @@ class _ReportViewerPageState extends State<ReportViewerPage>
                 itemBuilder: (context, index) {
                   final record = records[index];
                   final voucher = record.voucher;
-                  final isCancelled = voucher.status == 'CANCELLED';
 
                   return Card(
                     color: AppColors.surface,
@@ -528,37 +554,28 @@ class _ReportViewerPageState extends State<ReportViewerPage>
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isCancelled
-                                  ? AppColors.surfaceSecondary
-                                  : (voucher.voucherType == 'Sales'
-                                        ? AppColors.successBg
-                                        : (voucher.voucherType == 'Purchase'
-                                              ? AppColors.warningBg
-                                              : AppColors.infoBg)),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              isCancelled
-                                  ? 'CANCELLED'
-                                  : voucher.voucherType.toUpperCase(),
-                              style: TextStyle(
-                                color: isCancelled
-                                    ? AppColors.textMuted
-                                    : (voucher.voucherType == 'Sales'
-                                          ? AppColors.success
-                                          : (voucher.voucherType == 'Purchase'
-                                                ? AppColors.warning
-                                                : AppColors.info)),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final (badgeLabel, badgeTextColor, badgeBgColor) = _getDayBookBadgeDetails(voucher);
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: badgeBgColor,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  badgeLabel,
+                                  style: TextStyle(
+                                    color: badgeTextColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),

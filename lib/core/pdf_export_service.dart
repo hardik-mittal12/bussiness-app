@@ -731,12 +731,19 @@ class PdfExportService {
               ],
               data: List.generate(rows.length, (i) {
                 final r = rows[i];
+                String displayType = r.voucherType;
+                final isCash = r.paymentMode?.toLowerCase() == 'cash';
+                if (r.voucherType == 'Sales') {
+                  displayType = isCash ? 'Cash Sale' : 'Credit Sale';
+                } else if (r.voucherType == 'Purchase') {
+                  displayType = isCash ? 'Cash Purchase' : 'Credit Purchase';
+                }
                 return [
                   '${i + 1}',
                   _dateFormat.format(r.date),
                   DateFormat('hh:mm a').format(r.date),
                   r.voucherNumber,
-                  r.voucherType,
+                  displayType,
                   r.partyName ?? '',
                   r.narration,
                   r.referenceNumber ?? '',

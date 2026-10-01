@@ -541,8 +541,29 @@ class AccountingEngine {
     });
   }
 
-  // 4. Compute Ledger Balance via direct SQL aggregation
-  Future<double> getLedgerBalance(String ledgerId) async {
+  DateTime _normalizeStartOfDay(DateTime d) {
+    return DateTime(d.year, d.month, d.day, 0, 0, 0, 0);
+  }
+
+  DateTime _normalizeEndOfDay(DateTime d) {
+    if (d.hour == 0 && d.minute == 0 && d.second == 0 && d.millisecond == 0) {
+      return DateTime(d.year, d.month, d.day, 23, 59, 59, 999);
+    }
+    return d;
+  }
+
+  // 4. Compute Ledger Balance via direct SQL aggregation (supports as-of historical date)
+  Future<double> getLedgerBalance(String ledgerId, {DateTime? asOfDate}) async {
+    final effectiveAsOf = asOfDate != null ? _normalizeEndOfDay(asOfDate) : null;
+    final whereClause = effectiveAsOf != null
+        ? 'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date <= ? '
+        : 'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') ';
+
+    final variables = <Variable>[
+      if (effectiveAsOf != null) Variable.withDateTime(effectiveAsOf),
+      Variable.withString(ledgerId),
+    ];
+
     final res = await db
         .customSelect(
           'SELECT l.opening_balance + '
@@ -550,10 +571,10 @@ class AccountingEngine {
           'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
           'FROM ledgers l '
           'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-          'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
+          '$whereClause'
           'WHERE l.id = ? '
           'GROUP BY l.id;',
-          variables: [Variable.withString(ledgerId)],
+          variables: variables,
         )
         .getSingleOrNull();
 
@@ -561,8 +582,15 @@ class AccountingEngine {
     return (res.data['net_balance'] as num).toDouble();
   }
 
-  // 5. Get Ledger Statement (Includes both direct postings and settled cash transactions)
-  Future<List<LedgerStatementRow>> getLedgerStatement(String ledgerId) async {
+  // 5. Get Ledger Statement (Includes direct postings, settled cash transactions, and date range)
+  Future<List<LedgerStatementRow>> getLedgerStatement(
+    String ledgerId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final effectiveStart = startDate != null ? _normalizeStartOfDay(startDate) : null;
+    final effectiveEnd = endDate != null ? _normalizeEndOfDay(endDate) : null;
+
     final ledger = await (db.select(
       db.ledgers,
     )..where((t) => t.id.equals(ledgerId))).getSingle();
@@ -577,7 +605,10 @@ class AccountingEngine {
         ])..where(
           db.voucherEntries.ledgerId.equals(ledgerId) &
               (db.vouchers.status.isNull() |
-                  db.vouchers.status.equals('POSTED')),
+                  db.vouchers.status.equals('POSTED')) &
+              (effectiveEnd != null
+                  ? db.vouchers.date.isSmallerOrEqualValue(effectiveEnd)
+                  : const Constant(true)),
         );
 
     final directResults = await directQuery.get();
@@ -591,16 +622,19 @@ class AccountingEngine {
       (v) =>
           v.partyLedgerId.equals(ledgerId) &
           (v.paymentMode.equals('Cash') | v.paymentMode.equals('CASH')) &
-          (v.status.isNull() | v.status.equals('POSTED')),
+          (v.status.isNull() | v.status.equals('POSTED')) &
+          (effectiveEnd != null
+              ? v.date.isSmallerOrEqualValue(effectiveEnd)
+              : const Constant(true)),
     );
     final cashVouchers = await cashVouchersQuery.get();
 
-    final List<_StatementItem> items = [];
+    final List<_StatementItem> allItems = [];
 
     for (final row in directResults) {
       final entry = row.readTable(db.voucherEntries);
       final voucher = row.readTable(db.vouchers);
-      items.add(
+      allItems.add(
         _StatementItem(
           voucherId: voucher.id,
           date: voucher.date,
@@ -626,7 +660,7 @@ class AccountingEngine {
         (sum, e) => sum + e.debitAmount,
       );
 
-      items.add(
+      allItems.add(
         _StatementItem(
           voucherId: voucher.id,
           date: voucher.date,
@@ -644,16 +678,42 @@ class AccountingEngine {
     }
 
     // Sort chronologically by date and voucher number
-    items.sort((a, b) {
+    allItems.sort((a, b) {
       final cmp = a.date.compareTo(b.date);
       if (cmp != 0) return cmp;
       return a.voucherNo.compareTo(b.voucherNo);
     });
 
-    double currentBalance = ledger.openingBalance;
+    double periodOpeningBalance = ledger.openingBalance;
+    final List<_StatementItem> periodItems = [];
+
+    for (final item in allItems) {
+      if (effectiveStart != null && item.date.isBefore(effectiveStart)) {
+        periodOpeningBalance += item.debit - item.credit;
+      } else {
+        periodItems.add(item);
+      }
+    }
+
+    double currentBalance = periodOpeningBalance;
     List<LedgerStatementRow> statement = [];
 
-    for (final item in items) {
+    if (effectiveStart != null && periodOpeningBalance != 0.0) {
+      statement.add(
+        LedgerStatementRow(
+          voucherId: 'opening-balance',
+          date: effectiveStart,
+          voucherNo: 'OPENING',
+          voucherType: 'Opening',
+          narration: 'Opening Balance b/f',
+          debit: periodOpeningBalance > 0 ? periodOpeningBalance : 0.0,
+          credit: periodOpeningBalance < 0 ? periodOpeningBalance.abs() : 0.0,
+          runningBalance: periodOpeningBalance,
+        ),
+      );
+    }
+
+    for (final item in periodItems) {
       currentBalance += item.debit - item.credit;
       statement.add(
         LedgerStatementRow(
@@ -674,7 +734,13 @@ class AccountingEngine {
   }
 
   /// 5b. Fetch all Cash transactions with associated Customer / Supplier Party Name
-  Future<List<CashTransactionRow>> getCashTransactions() async {
+  Future<List<CashTransactionRow>> getCashTransactions({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final effectiveStart = startDate != null ? _normalizeStartOfDay(startDate) : null;
+    final effectiveEnd = endDate != null ? _normalizeEndOfDay(endDate) : null;
+
     final cashLedger = await (db.select(db.ledgers)..where((t) => t.id.equals('cash'))).getSingleOrNull();
     double currentBalance = cashLedger?.openingBalance ?? 0.0;
 
@@ -682,7 +748,8 @@ class AccountingEngine {
       innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.voucherEntries.voucherId)),
     ])..where(
       db.voucherEntries.ledgerId.equals('cash') &
-      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
+      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED')) &
+      (effectiveEnd != null ? db.vouchers.date.isSmallerOrEqualValue(effectiveEnd) : const Constant(true))
     );
     query.orderBy([OrderingTerm.asc(db.vouchers.date), OrderingTerm.asc(db.vouchers.voucherNumber)]);
     final results = await query.get();
@@ -695,6 +762,10 @@ class AccountingEngine {
       final isCashIn = entry.debitAmount > 0;
       final amount = isCashIn ? entry.debitAmount : entry.creditAmount;
       currentBalance += entry.debitAmount - entry.creditAmount;
+
+      if (effectiveStart != null && voucher.date.isBefore(effectiveStart)) {
+        continue;
+      }
 
       String partyName = 'Cash Counter / Walk-in';
       if (voucher.partyLedgerId != null) {
@@ -730,8 +801,12 @@ class AccountingEngine {
     return list;
   }
 
-  // 6. Calculate Stock Level for single item
-  Future<StockStatus> getStockSummaryForItem(String stockItemId) async {
+  // 6. Calculate Stock Level for single item (supports as-of historical date)
+  Future<StockStatus> getStockSummaryForItem(
+    String stockItemId, {
+    DateTime? asOfDate,
+  }) async {
+    final effectiveAsOf = asOfDate != null ? _normalizeEndOfDay(asOfDate) : null;
     final item = await (db.select(
       db.stockItems,
     )..where((t) => t.id.equals(stockItemId))).getSingle();
@@ -744,7 +819,10 @@ class AccountingEngine {
         ])..where(
           db.stockTransactions.stockItemId.equals(stockItemId) &
               (db.vouchers.status.isNull() |
-                  db.vouchers.status.equals('POSTED')),
+                  db.vouchers.status.equals('POSTED')) &
+              (effectiveAsOf != null
+                  ? db.vouchers.date.isSmallerOrEqualValue(effectiveAsOf)
+                  : const Constant(true)),
         );
     query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
     final txs = await query.get();
@@ -779,13 +857,13 @@ class AccountingEngine {
     );
   }
 
-  // 7. Calculate Inventory Stock Levels across catalog
-  Future<List<StockStatus>> getStockSummary() async {
+  // 7. Calculate Inventory Stock Levels across catalog (supports as-of historical date)
+  Future<List<StockStatus>> getStockSummary({DateTime? asOfDate}) async {
     final items = await db.select(db.stockItems).get();
     List<StockStatus> summary = [];
 
     for (final item in items) {
-      final status = await getStockSummaryForItem(item.id);
+      final status = await getStockSummaryForItem(item.id, asOfDate: asOfDate);
       summary.add(status);
     }
 
@@ -795,8 +873,17 @@ class AccountingEngine {
     return summary;
   }
 
-  // 8. Generate Trial Balance using direct SQL aggregation
-  Future<List<TrialBalanceRow>> getTrialBalance() async {
+  // 8. Generate Trial Balance using direct SQL aggregation (supports as-of historical date)
+  Future<List<TrialBalanceRow>> getTrialBalance({DateTime? asOfDate}) async {
+    final effectiveAsOf = asOfDate != null ? _normalizeEndOfDay(asOfDate) : null;
+    final whereClause = effectiveAsOf != null
+        ? 'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date <= ? '
+        : 'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') ';
+
+    final variables = <Variable>[
+      if (effectiveAsOf != null) Variable.withDateTime(effectiveAsOf),
+    ];
+
     final rows = await db
         .customSelect(
           'SELECT l.id AS ledger_id, l.name AS ledger_name, g.name AS group_name, '
@@ -806,10 +893,11 @@ class AccountingEngine {
           'FROM ledgers l '
           'JOIN account_groups g ON l.group_id = g.id '
           'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-          'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
+          '$whereClause'
           'GROUP BY l.id, l.name, g.name '
           'HAVING net_balance != 0.0 '
           'ORDER BY LOWER(l.name) ASC;',
+          variables: variables,
         )
         .get();
 
@@ -911,14 +999,14 @@ class AccountingEngine {
         .toList();
   }
 
-  // 10. Generate Profit & Loss Report
-  Future<ProfitLossReport> getProfitLossReport() async {
+  // 10. Generate Profit & Loss Report (supports as-of historical date)
+  Future<ProfitLossReport> getProfitLossReport({DateTime? asOfDate}) async {
     final salesLedgers = await (db.select(
       db.ledgers,
     )..where((t) => t.groupId.equals('sales_accounts'))).get();
     double salesVal = 0.0;
     for (final l in salesLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal < 0) salesVal += bal.abs();
     }
 
@@ -927,7 +1015,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('purchase_accounts'))).get();
     double purchaseVal = 0.0;
     for (final l in purchaseLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) purchaseVal += bal;
     }
 
@@ -936,7 +1024,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('direct_expenses'))).get();
     double directExp = 0.0;
     for (final l in directExpLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) directExp += bal;
     }
 
@@ -945,7 +1033,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('indirect_expenses'))).get();
     double indirectExp = 0.0;
     for (final l in indirectExpLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) indirectExp += bal;
     }
 
@@ -955,7 +1043,7 @@ class AccountingEngine {
       openingStockVal += item.openingQuantity * item.openingRate;
     }
 
-    final stockStatusList = await getStockSummary();
+    final stockStatusList = await getStockSummary(asOfDate: asOfDate);
     double closingStockVal = 0.0;
     for (final status in stockStatusList) {
       closingStockVal += status.totalValue;
@@ -977,14 +1065,14 @@ class AccountingEngine {
     );
   }
 
-  // 11. Generate Balance Sheet Report
-  Future<BalanceSheetReport> getBalanceSheetReport() async {
+  // 11. Generate Balance Sheet Report (supports as-of historical date)
+  Future<BalanceSheetReport> getBalanceSheetReport({DateTime? asOfDate}) async {
     final capitalLedgers = await (db.select(
       db.ledgers,
     )..where((t) => t.groupId.equals('equity'))).get();
     double capitalBal = 0.0;
     for (final l in capitalLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (l.id != 'profit_loss') {
         capitalBal += -bal;
       }
@@ -995,7 +1083,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('creditors'))).get();
     double creditorsBal = 0.0;
     for (final l in creditorLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal < 0) creditorsBal += bal.abs();
     }
 
@@ -1004,12 +1092,12 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('duties_taxes'))).get();
     double taxesBal = 0.0;
     for (final l in taxLedgers) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal < 0) taxesBal += bal.abs();
     }
     double totalLiabilities = taxesBal;
 
-    final plReport = await getProfitLossReport();
+    final plReport = await getProfitLossReport(asOfDate: asOfDate);
     final netProfitSurplus = plReport.netProfit;
 
     final cashLedgersList = await (db.select(
@@ -1017,7 +1105,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('cash_in_hand'))).get();
     double cashBal = 0.0;
     for (final l in cashLedgersList) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) cashBal += bal;
     }
 
@@ -1026,7 +1114,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('bank_accounts'))).get();
     double bankBal = 0.0;
     for (final l in bankLedgersList) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) bankBal += bal;
     }
 
@@ -1035,7 +1123,7 @@ class AccountingEngine {
     )..where((t) => t.groupId.equals('debtors'))).get();
     double debtorsBal = 0.0;
     for (final l in debtorLedgersList) {
-      final bal = await getLedgerBalance(l.id);
+      final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
       if (bal > 0) debtorsBal += bal;
     }
 

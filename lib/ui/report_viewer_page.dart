@@ -47,6 +47,8 @@ class ReportViewerPage extends StatefulWidget {
   State<ReportViewerPage> createState() => _ReportViewerPageState();
 }
 
+enum DaybookPreset { all, today, yesterday, thisMonth, financialYear, custom }
+
 class _ReportViewerPageState extends State<ReportViewerPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -55,8 +57,10 @@ class _ReportViewerPageState extends State<ReportViewerPage>
     decimalDigits: 2,
   );
 
-  DateTime _selectedDaybookDate = DateTime.now();
-  bool _enableDaybookDateFilter = false;
+  DaybookPreset _daybookPreset = DaybookPreset.all;
+  DateTimeRange? _daybookCustomRange;
+  final TextEditingController _daybookSearchController = TextEditingController();
+  String _daybookSearchQuery = '';
 
   @override
   void initState() {
@@ -74,8 +78,50 @@ class _ReportViewerPageState extends State<ReportViewerPage>
 
   @override
   void dispose() {
+    _daybookSearchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  (DateTime? start, DateTime? end) _getDaybookDateRange() {
+    final now = DateTime.now();
+    switch (_daybookPreset) {
+      case DaybookPreset.all:
+        return (null, null);
+      case DaybookPreset.today:
+        return (
+          DateTime(now.year, now.month, now.day, 0, 0, 0),
+          DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+        );
+      case DaybookPreset.yesterday:
+        final y = now.subtract(const Duration(days: 1));
+        return (
+          DateTime(y.year, y.month, y.day, 0, 0, 0),
+          DateTime(y.year, y.month, y.day, 23, 59, 59, 999),
+        );
+      case DaybookPreset.thisMonth:
+        final start = DateTime(now.year, now.month, 1, 0, 0, 0);
+        final nextMonth = now.month == 12
+            ? DateTime(now.year + 1, 1, 1)
+            : DateTime(now.year, now.month + 1, 1);
+        final end = nextMonth.subtract(const Duration(microseconds: 1));
+        return (start, end);
+      case DaybookPreset.financialYear:
+        final fyStartYear = now.month >= 4 ? now.year : now.year - 1;
+        final start = DateTime(fyStartYear, 4, 1, 0, 0, 0);
+        final end = DateTime(fyStartYear + 1, 3, 31, 23, 59, 59, 999);
+        return (start, end);
+      case DaybookPreset.custom:
+        if (_daybookCustomRange != null) {
+          final s = _daybookCustomRange!.start;
+          final e = _daybookCustomRange!.end;
+          return (
+            DateTime(s.year, s.month, s.day, 0, 0, 0),
+            DateTime(e.year, e.month, e.day, 23, 59, 59, 999),
+          );
+        }
+        return (null, null);
+    }
   }
 
   Future<void> _exportCurrentTabPdf() async {
@@ -89,28 +135,23 @@ class _ReportViewerPageState extends State<ReportViewerPage>
 
       if (tabIndex == 0) {
         // Day Book
-        final startDate = _enableDaybookDateFilter
-            ? DateTime(
-                _selectedDaybookDate.year,
-                _selectedDaybookDate.month,
-                _selectedDaybookDate.day,
-              )
-            : null;
-        final endDate = _enableDaybookDateFilter
-            ? DateTime(
-                _selectedDaybookDate.year,
-                _selectedDaybookDate.month,
-                _selectedDaybookDate.day + 1,
-              ).subtract(const Duration(microseconds: 1))
-            : null;
+        final (startDate, endDate) = _getDaybookDateRange();
         final dayRows = await engine.getDayBook(
           startDate: startDate,
           endDate: endDate,
           limit: 1000,
         );
+        final filteredRows = _daybookSearchQuery.trim().isEmpty
+            ? dayRows
+            : dayRows.where((r) {
+                final q = _daybookSearchQuery.trim().toLowerCase();
+                return r.voucherNumber.toLowerCase().contains(q) ||
+                    r.voucherType.toLowerCase().contains(q) ||
+                    r.narration.toLowerCase().contains(q);
+              }).toList();
         bytes = await pdfService.exportDayBookPdf(
-          _selectedDaybookDate,
-          dayRows,
+          startDate ?? DateTime.now(),
+          filteredRows,
         );
       } else if (tabIndex == 1) {
         // Trial Balance
@@ -215,17 +256,12 @@ class _ReportViewerPageState extends State<ReportViewerPage>
         ),
       ],
     )..where(db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'));
-    if (_enableDaybookDateFilter) {
-      final startOfDay = DateTime(
-        _selectedDaybookDate.year,
-        _selectedDaybookDate.month,
-        _selectedDaybookDate.day,
-      );
-      final startOfNextDay = startOfDay.add(const Duration(days: 1));
-      query.where(
-        db.vouchers.date.isBiggerOrEqual(drift.Variable(startOfDay)) &
-            db.vouchers.date.isSmallerThan(drift.Variable(startOfNextDay)),
-      );
+    final (startDate, endDate) = _getDaybookDateRange();
+    if (startDate != null) {
+      query.where(db.vouchers.date.isBiggerOrEqual(drift.Variable(startDate)));
+    }
+    if (endDate != null) {
+      query.where(db.vouchers.date.isSmallerOrEqual(drift.Variable(endDate)));
     }
     query.orderBy([
       drift.OrderingTerm.desc(db.vouchers.date),
@@ -236,67 +272,146 @@ class _ReportViewerPageState extends State<ReportViewerPage>
 
     return Column(
       children: [
-        // Date Filter Bar
+        // Daybook Header Filter Toolbar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: const BoxDecoration(
             color: AppColors.surface,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
                 children: [
-                  const Icon(
-                    Icons.filter_list_rounded,
-                    color: AppColors.primary,
-                    size: 20,
+                  // Preset Chips
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Icon(Icons.date_range_rounded, size: 18, color: AppColors.primary),
+                      const SizedBox(width: 2),
+                      ChoiceChip(
+                        label: const Text('All', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.all,
+                        onSelected: (val) {
+                          if (val) setState(() => _daybookPreset = DaybookPreset.all);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Today', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.today,
+                        onSelected: (val) {
+                          if (val) setState(() => _daybookPreset = DaybookPreset.today);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Yesterday', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.yesterday,
+                        onSelected: (val) {
+                          if (val) setState(() => _daybookPreset = DaybookPreset.yesterday);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('This Month', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.thisMonth,
+                        onSelected: (val) {
+                          if (val) setState(() => _daybookPreset = DaybookPreset.thisMonth);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Financial Year', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.financialYear,
+                        onSelected: (val) {
+                          if (val) setState(() => _daybookPreset = DaybookPreset.financialYear);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Custom Range', style: TextStyle(fontSize: 12)),
+                        selected: _daybookPreset == DaybookPreset.custom,
+                        onSelected: (val) async {
+                          if (val) {
+                            final now = DateTime.now();
+                            final range = await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                              initialDateRange: _daybookCustomRange ??
+                                  DateTimeRange(
+                                    start: DateTime(now.year, now.month, 1),
+                                    end: now,
+                                  ),
+                            );
+                            if (range != null) {
+                              setState(() {
+                                _daybookCustomRange = range;
+                                _daybookPreset = DaybookPreset.custom;
+                              });
+                            }
+                          }
+                        },
+                      ),
+                      if (_daybookPreset == DaybookPreset.custom && _daybookCustomRange != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          ),
+                          icon: const Icon(Icons.edit_calendar_rounded, size: 14),
+                          label: Text(
+                            '${DateFormat('dd-MMM').format(_daybookCustomRange!.start)} - ${DateFormat('dd-MMM-yyyy').format(_daybookCustomRange!.end)}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () async {
+                            final range = await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                              initialDateRange: _daybookCustomRange,
+                            );
+                            if (range != null) {
+                              setState(() => _daybookCustomRange = range);
+                            }
+                          },
+                        ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Filter by Date',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
+
+                  // Search Field
+                  SizedBox(
+                    width: 260,
+                    height: 36,
+                    child: TextField(
+                      controller: _daybookSearchController,
+                      style: const TextStyle(fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Search vouchers, party...',
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        suffixIcon: _daybookSearchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: () {
+                                  _daybookSearchController.clear();
+                                  setState(() => _daybookSearchQuery = '');
+                                },
+                              )
+                            : null,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      onChanged: (val) {
+                        setState(() => _daybookSearchQuery = val);
+                      },
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Switch(
-                    value: _enableDaybookDateFilter,
-                    activeColor: AppColors.primary,
-                    onChanged: (val) =>
-                        setState(() => _enableDaybookDateFilter = val),
                   ),
                 ],
               ),
-              if (_enableDaybookDateFilter)
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: const BorderSide(color: AppColors.borderStrong),
-                  ),
-                  icon: const Icon(
-                    Icons.calendar_month_rounded,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                  label: Text(
-                    DateFormat('dd-MMM-yyyy').format(_selectedDaybookDate),
-                  ),
-                  onPressed: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _selectedDaybookDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2035),
-                    );
-                    if (picked != null) {
-                      setState(() => _selectedDaybookDate = picked);
-                    }
-                  },
-                ),
             ],
           ),
         ),
@@ -352,12 +467,29 @@ class _ReportViewerPageState extends State<ReportViewerPage>
                   }
                 }
               }
-              final records = recordsById.values.toList();
+              var records = recordsById.values.toList();
+              if (_daybookSearchQuery.trim().isNotEmpty) {
+                final q = _daybookSearchQuery.trim().toLowerCase();
+                records = records.where((r) {
+                  final vNo = r.voucher.voucherNumber.toLowerCase();
+                  final vType = r.voucher.voucherType.toLowerCase();
+                  final party = (r.partyName ?? '').toLowerCase();
+                  final narr = (r.voucher.narration ?? '').toLowerCase();
+                  final hasLedger = r.entries.any((e) => e.ledgerName.toLowerCase().contains(q));
+                  return vNo.contains(q) ||
+                      vType.contains(q) ||
+                      party.contains(q) ||
+                      narr.contains(q) ||
+                      hasLedger;
+                }).toList();
+              }
               if (records.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
-                    'No posted vouchers found for this view.',
-                    style: TextStyle(color: AppColors.textMuted),
+                    _daybookSearchQuery.isNotEmpty
+                        ? 'No vouchers match "$_daybookSearchQuery".'
+                        : 'No posted vouchers found for this view.',
+                    style: const TextStyle(color: AppColors.textMuted),
                   ),
                 );
               }

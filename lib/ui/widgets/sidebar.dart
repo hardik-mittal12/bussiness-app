@@ -14,15 +14,15 @@ class Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final menuItems = [
-      _SidebarItem(Icons.dashboard_rounded, 'Dashboard'),
-      _SidebarItem(Icons.menu_book_rounded, 'Day Book'),
-      _SidebarItem(Icons.people_rounded, 'Ledgers & Accounts'),
-      _SidebarItem(Icons.inventory_2_rounded, 'Inventory / Stock'),
-      _SidebarItem(Icons.receipt_long_rounded, 'Sales & Purchases'),
-      _SidebarItem(Icons.payment_rounded, 'Receipts & Payments'),
-      _SidebarItem(Icons.assessment_rounded, 'Financial Reports'),
-      _SidebarItem(Icons.swap_vertical_circle_rounded, 'Import / Export'),
-      _SidebarItem(Icons.settings_rounded, 'Settings'),
+      _SidebarItem(Icons.dashboard_rounded, 'Dashboard', 'F1'),
+      _SidebarItem(Icons.menu_book_rounded, 'Day Book', 'F2'),
+      _SidebarItem(Icons.people_rounded, 'Ledgers & Accounts', 'F3'),
+      _SidebarItem(Icons.inventory_2_rounded, 'Inventory / Stock', 'F4'),
+      _SidebarItem(Icons.receipt_long_rounded, 'Sales & Purchases', 'F5'),
+      _SidebarItem(Icons.payment_rounded, 'Receipts & Payments', 'F6'),
+      _SidebarItem(Icons.assessment_rounded, 'Financial Reports', 'F7'),
+      _SidebarItem(Icons.swap_vertical_circle_rounded, 'Import / Export', 'F8'),
+      _SidebarItem(Icons.settings_rounded, 'Settings', 'F9'),
     ];
 
     return Container(
@@ -174,6 +174,34 @@ class Sidebar extends StatelessWidget {
                               ),
                             ),
                           ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.primary.withValues(alpha: 0.12)
+                                  : AppColors.surfaceSecondary,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: isSelected
+                                    ? const Color(0xFFBFDBFE)
+                                    : AppColors.border,
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Text(
+                              item.shortcut,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : AppColors.textMuted,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -230,6 +258,7 @@ class Sidebar extends StatelessWidget {
 class _SidebarItem {
   final IconData icon;
   final String label;
+  final String shortcut;
 
-  _SidebarItem(this.icon, this.label);
+  _SidebarItem(this.icon, this.label, this.shortcut);
 }

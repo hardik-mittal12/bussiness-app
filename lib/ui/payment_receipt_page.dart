@@ -28,6 +28,8 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
 
   String?
   _selectedContactLedgerId; // Customer for Receipt, Supplier for Payment
+  final TextEditingController _contactSearchController = TextEditingController();
+  final FocusNode _contactSearchFocusNode = FocusNode();
   String? _selectedCashBankLedgerId; // Bank/Cash account
   String _selectedPaymentMode = 'Cash';
   double _amount = 0.0;
@@ -61,6 +63,8 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
 
   @override
   void dispose() {
+    _contactSearchController.dispose();
+    _contactSearchFocusNode.dispose();
     _amountController.dispose();
     _narrationController.dispose();
     _refController.dispose();
@@ -185,6 +189,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
       setState(() {
         _voucherType = type;
         _selectedContactLedgerId = null;
+        _contactSearchController.clear();
         _amount = 0.0;
         _amountController.text = '';
         _editingVoucherId = null;
@@ -200,6 +205,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
       _voucherNumber = detail.voucher.voucherNumber;
       _voucherDate = detail.voucher.date;
       _selectedContactLedgerId = detail.contactLedger.id;
+      _contactSearchController.text = detail.contactLedger.name;
       _narration = detail.voucher.narration ?? '';
       _narrationController.text = _narration;
       _referenceNumber = detail.voucher.referenceNumber ?? '';
@@ -232,6 +238,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
     setState(() {
       _editingVoucherId = null;
       _selectedContactLedgerId = null;
+      _contactSearchController.clear();
       _amount = 0.0;
       _amountController.text = '';
       _narration = '';
@@ -788,38 +795,206 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                       const SizedBox(height: 14),
 
                       // Customer / Supplier selector
-                      DropdownButtonFormField<String>(
-                        value: _selectedContactLedgerId,
-                        isExpanded: true,
-                        dropdownColor: AppColors.surface,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 14,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: _voucherType == 'Receipt'
-                              ? 'Customer (Sundry Debtor)'
-                              : 'Supplier (Sundry Creditor)',
-                          isDense: true,
-                        ),
-                        items: _contactLedgers.map((l) {
-                          return DropdownMenuItem(
-                            value: l.id,
-                            child: Text(
-                              l.name + (l.isDeleted ? ' (Deactivated)' : ''),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: l.isDeleted
-                                    ? AppColors.textMuted
-                                    : AppColors.textPrimary,
+                      RawAutocomplete<Ledger>(
+                        focusNode: _contactSearchFocusNode,
+                        textEditingController: _contactSearchController,
+                        displayStringForOption: (ledger) => ledger.name,
+                        optionsBuilder: (value) {
+                          final query = value.text.trim().toLowerCase();
+                          final matches = _contactLedgers.where((ledger) {
+                            return query.isEmpty ||
+                                ledger.name.toLowerCase().contains(query) ||
+                                (ledger.phone?.toLowerCase().contains(query) ?? false);
+                          }).toList();
+                          if (query.isNotEmpty) {
+                            matches.sort((a, b) {
+                              final aStarts = a.name.toLowerCase().startsWith(query);
+                              final bStarts = b.name.toLowerCase().startsWith(query);
+                              if (aStarts != bStarts) return aStarts ? -1 : 1;
+                              return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                            });
+                          }
+                          return matches;
+                        },
+                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                          return TextFormField(
+                            key: const ValueKey('receipt-contact-search'),
+                            controller: controller,
+                            focusNode: focusNode,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 14,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: _voucherType == 'Receipt'
+                                  ? 'Customer (Sundry Debtor) *'
+                                  : 'Supplier (Sundry Creditor) *',
+                              hintText: 'Type to search party name or phone...',
+                              isDense: true,
+                              suffixIcon: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (controller.text.isNotEmpty)
+                                    IconButton(
+                                      icon: const Icon(Icons.clear, size: 16),
+                                      tooltip: 'Clear selection',
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedContactLedgerId = null;
+                                          controller.clear();
+                                        });
+                                      },
+                                    ),
+                                  IconButton(
+                                    key: const ValueKey('receipt-contact-open-list'),
+                                    tooltip: 'Show all parties',
+                                    icon: const Icon(Icons.arrow_drop_down_rounded),
+                                    onPressed: () {
+                                      _selectedContactLedgerId = null;
+                                      controller.clear();
+                                      focusNode.requestFocus();
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            validator: (_) {
+                              if (_selectedContactLedgerId == null) {
+                                return 'Please select a valid party';
+                              }
+                              return null;
+                            },
+                            onChanged: (val) {
+                              if (_selectedContactLedgerId != null &&
+                                  !_contactLedgers.any((l) => l.id == _selectedContactLedgerId && l.name == val)) {
+                                setState(() => _selectedContactLedgerId = null);
+                              }
+                            },
+                            onFieldSubmitted: (_) => onFieldSubmitted(),
+                          );
+                        },
+                        optionsViewBuilder: (context, onSelected, options) {
+                          return Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              elevation: 6,
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                constraints: const BoxConstraints(maxWidth: 480, maxHeight: 280),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: AppColors.border),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: ListView.separated(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  separatorBuilder: (context, index) => const Divider(
+                                    color: AppColors.border,
+                                    height: 1,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final ledger = options.elementAt(index);
+                                    return ListTile(
+                                      dense: true,
+                                      title: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              ledger.name,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: ledger.isDeleted
+                                                    ? AppColors.textMuted
+                                                    : AppColors.textPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                          if (ledger.phone != null && ledger.phone!.isNotEmpty)
+                                            Text(
+                                              ledger.phone!,
+                                              style: const TextStyle(
+                                                color: AppColors.textMuted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      subtitle: ledger.address != null && ledger.address!.isNotEmpty
+                                          ? Text(
+                                              ledger.address!,
+                                              style: const TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 11,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            )
+                                          : null,
+                                      onTap: () {
+                                        onSelected(ledger);
+                                      },
+                                    );
+                                  },
+                                ),
                               ),
                             ),
                           );
-                        }).toList(),
-                        onChanged: (val) =>
-                            setState(() => _selectedContactLedgerId = val),
+                        },
+                        onSelected: (ledger) {
+                          setState(() {
+                            _selectedContactLedgerId = ledger.id;
+                            _contactSearchController.text = ledger.name;
+                          });
+                        },
                       ),
+                      if (_selectedContactLedgerId != null) ...[
+                        const SizedBox(height: 6),
+                        Consumer<AccountingEngine>(
+                          builder: (context, engine, _) {
+                            return FutureBuilder<List<LedgerStatementRow>>(
+                              future: engine.getLedgerStatement(_selectedContactLedgerId!),
+                              builder: (context, snap) {
+                                final rows = snap.data ?? [];
+                                final balance = rows.isNotEmpty ? rows.last.runningBalance : 0.0;
+                                final isDebtor = _voucherType == 'Receipt';
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceSecondary,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        isDebtor ? 'Outstanding Debt: ' : 'Payable Balance: ',
+                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                      ),
+                                      Text(
+                                        _currencyFormat.format(balance.abs()),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: balance > 0
+                                              ? (isDebtor ? AppColors.error : AppColors.success)
+                                              : AppColors.textPrimary,
+                                        ),
+                                      ),
+                                      Text(
+                                        balance > 0 ? (isDebtor ? ' Dr' : ' Cr') : (balance < 0 ? ' (Advance)' : ' (Settled)'),
+                                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
                       const SizedBox(height: 14),
 
                       // Amount

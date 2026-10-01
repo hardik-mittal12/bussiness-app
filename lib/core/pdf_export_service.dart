@@ -124,11 +124,13 @@ class PdfExportService {
   Future<Uint8List> exportInvoicePdf(
     InvoiceViewModel invoice, {
     PrinterPaperSize paperSize = PrinterPaperSize.a4,
+    int copies = 1,
   }) async {
     return InvoicePrinter.generatePdfBytes(
       db: db,
       invoice: invoice,
       paperSize: paperSize,
+      copies: copies,
     );
   }
 

@@ -32,6 +32,7 @@ class PrintPreviewDialog extends StatefulWidget {
 
 class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   PrinterPaperSize _selectedPaperSize = PrinterPaperSize.a4;
+  int _selectedCopies = 1;
   BusinessProfile? _profile;
   Uint8List? _logoBytes;
   bool _isLoading = true;
@@ -86,6 +87,31 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: _selectedCopies,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF0F172A), fontWeight: FontWeight.w600),
+                      items: const [
+                        DropdownMenuItem(value: 1, child: Text('1 Copy')),
+                        DropdownMenuItem(value: 2, child: Text('2 Copies (Orig+Dup)')),
+                        DropdownMenuItem(value: 3, child: Text('3 Copies (Triplicate)')),
+                        DropdownMenuItem(value: 4, child: Text('4 Copies')),
+                        DropdownMenuItem(value: 5, child: Text('5 Copies')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _selectedCopies = val);
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -146,7 +172,11 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                     final messenger = ScaffoldMessenger.of(context);
                     try {
                       final pdfService = PdfExportService(widget.db);
-                      final bytes = await pdfService.exportInvoicePdf(widget.invoice, paperSize: _selectedPaperSize);
+                      final bytes = await pdfService.exportInvoicePdf(
+                        widget.invoice,
+                        paperSize: _selectedPaperSize,
+                        copies: _selectedCopies,
+                      );
                       await Printing.sharePdf(
                         bytes: bytes,
                         filename: 'invoice_${widget.invoice.voucherNumber}.pdf',
@@ -175,6 +205,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                         db: widget.db,
                         invoice: widget.invoice,
                         paperSize: _selectedPaperSize,
+                        copies: _selectedCopies,
                       );
                     } catch (e) {
                       if (mounted) {

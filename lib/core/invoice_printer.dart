@@ -79,8 +79,14 @@ class InvoicePrinter {
     required AppDatabase db,
     required InvoiceViewModel invoice,
     PrinterPaperSize paperSize = PrinterPaperSize.a4,
+    int copies = 1,
   }) async {
-    final pdfBytes = await generatePdfBytes(db: db, invoice: invoice, paperSize: paperSize);
+    final pdfBytes = await generatePdfBytes(
+      db: db,
+      invoice: invoice,
+      paperSize: paperSize,
+      copies: copies,
+    );
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdfBytes,
@@ -93,6 +99,7 @@ class InvoicePrinter {
     required AppDatabase db,
     required InvoiceViewModel invoice,
     PrinterPaperSize paperSize = PrinterPaperSize.a4,
+    int copies = 1,
   }) async {
     final profileService = BusinessProfileService(db);
     final profile = await profileService.getProfile();
@@ -106,17 +113,33 @@ class InvoicePrinter {
     } catch (_) {}
 
     final pdf = pw.Document();
+    final actualCopies = copies < 1 ? 1 : copies;
 
-    switch (paperSize) {
-      case PrinterPaperSize.a4:
-        _buildA4Pdf(pdf, invoice, profile, logoImage);
-        break;
-      case PrinterPaperSize.thermal58mm:
-        _buildThermalPdf(pdf, invoice, profile, logoImage, paperWidthMm: 58);
-        break;
-      case PrinterPaperSize.thermal80mm:
-        _buildThermalPdf(pdf, invoice, profile, logoImage, paperWidthMm: 80);
-        break;
+    for (int i = 1; i <= actualCopies; i++) {
+      String? copyLabel;
+      if (actualCopies > 1) {
+        if (i == 1) {
+          copyLabel = 'ORIGINAL FOR RECIPIENT';
+        } else if (i == 2) {
+          copyLabel = 'DUPLICATE FOR TRANSPORTER';
+        } else if (i == 3) {
+          copyLabel = 'TRIPLICATE FOR SUPPLIER';
+        } else {
+          copyLabel = 'EXTRA COPY (COPY $i)';
+        }
+      }
+
+      switch (paperSize) {
+        case PrinterPaperSize.a4:
+          _buildA4Pdf(pdf, invoice, profile, logoImage, copyLabel: copyLabel);
+          break;
+        case PrinterPaperSize.thermal58mm:
+          _buildThermalPdf(pdf, invoice, profile, logoImage, paperWidthMm: 58, copyLabel: copyLabel);
+          break;
+        case PrinterPaperSize.thermal80mm:
+          _buildThermalPdf(pdf, invoice, profile, logoImage, paperWidthMm: 80, copyLabel: copyLabel);
+          break;
+      }
     }
 
     return pdf.save();
@@ -127,23 +150,35 @@ class InvoicePrinter {
     pw.Document pdf,
     InvoiceViewModel invoice,
     BusinessProfile profile,
-    pw.MemoryImage? logoImage,
-  ) {
+    pw.MemoryImage? logoImage, {
+    String? copyLabel,
+  }) {
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context pdfContext) {
           return [
-              // Title
+              // Title & Copy Designation
               pw.Center(
-                child: pw.Text(
-                  invoice.voucherType == 'Sales' ? 'ESTIMATE' : 'PURCHASE VOUCHER',
-                  style: pw.TextStyle(
-                    fontSize: 20,
-                    fontWeight: pw.FontWeight.bold,
-                    decoration: pw.TextDecoration.underline,
-                  ),
+                child: pw.Column(
+                  children: [
+                    pw.Text(
+                      invoice.voucherType == 'Sales' ? 'ESTIMATE' : 'PURCHASE VOUCHER',
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                        decoration: pw.TextDecoration.underline,
+                      ),
+                    ),
+                    if (copyLabel != null) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        '($copyLabel)',
+                        style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               pw.SizedBox(height: 16),
@@ -295,6 +330,7 @@ class InvoicePrinter {
     BusinessProfile profile,
     pw.MemoryImage? logoImage, {
     required double paperWidthMm,
+    String? copyLabel,
   }) {
     final format = PdfPageFormat(
       paperWidthMm * PdfPageFormat.mm,
@@ -329,6 +365,15 @@ class InvoicePrinter {
                   textAlign: pw.TextAlign.center,
                 ),
               ),
+              if (copyLabel != null) ...[
+                pw.SizedBox(height: 1),
+                pw.Center(
+                  child: pw.Text(
+                    '($copyLabel)',
+                    style: pw.TextStyle(fontSize: fontSize - 1, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+              ],
               if (profile.address != null && profile.address!.isNotEmpty)
                 pw.Center(
                   child: pw.Text(

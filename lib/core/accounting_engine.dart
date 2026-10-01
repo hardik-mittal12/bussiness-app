@@ -13,6 +13,7 @@ class LedgerStatementRow {
   final double debit;
   final double credit;
   final double runningBalance;
+  final String? paymentMode;
 
   double get debitAmount => debit;
   double get creditAmount => credit;
@@ -27,6 +28,53 @@ class LedgerStatementRow {
     required this.debit,
     required this.credit,
     required this.runningBalance,
+    this.paymentMode,
+  });
+}
+
+class CashTransactionRow {
+  final String voucherId;
+  final DateTime date;
+  final String voucherNo;
+  final String voucherType;
+  final String partyName;
+  final String narration;
+  final double amount;
+  final bool isCashIn;
+  final double runningBalance;
+
+  CashTransactionRow({
+    required this.voucherId,
+    required this.date,
+    required this.voucherNo,
+    required this.voucherType,
+    required this.partyName,
+    required this.narration,
+    required this.amount,
+    required this.isCashIn,
+    required this.runningBalance,
+  });
+}
+
+class _StatementItem {
+  final String voucherId;
+  final DateTime date;
+  final String voucherNo;
+  final String voucherType;
+  final String narration;
+  final double debit;
+  final double credit;
+  final String? paymentMode;
+
+  _StatementItem({
+    required this.voucherId,
+    required this.date,
+    required this.voucherNo,
+    required this.voucherType,
+    required this.narration,
+    required this.debit,
+    required this.credit,
+    this.paymentMode,
   });
 }
 
@@ -376,12 +424,27 @@ class AccountingEngine {
   // 3. Cancel Voucher (Preserves accounting history, stock safely restored)
   Future<void> cancelVoucher(String voucherId) async {
     await db.transaction(() async {
+      final v = await (db.select(db.vouchers)..where((t) => t.id.equals(voucherId))).getSingleOrNull();
+      if (v == null) return;
+
       await (db.update(
         db.vouchers,
       )..where((t) => t.id.equals(voucherId))).write(
         VouchersCompanion(
           status: const Value('CANCELLED'),
           updatedAt: Value(DateTime.now()),
+        ),
+      );
+
+      await db.into(db.auditLogs).insert(
+        AuditLogsCompanion.insert(
+          id: uuid.v4(),
+          action: 'CANCEL',
+          entityType: 'Voucher',
+          entityId: voucherId,
+          oldValue: const Value('POSTED'),
+          newValue: const Value('CANCELLED'),
+          metadata: Value('${v.voucherType} ${v.voucherNumber} cancelled'),
         ),
       );
     });
@@ -399,6 +462,18 @@ class AccountingEngine {
               .getSingleOrNull();
       if (v == null) return;
       final vid = v.id;
+
+      await db.into(db.auditLogs).insert(
+        AuditLogsCompanion.insert(
+          id: uuid.v4(),
+          action: 'DELETE',
+          entityType: 'Voucher',
+          entityId: vid,
+          oldValue: Value('${v.voucherType} ${v.voucherNumber}'),
+          metadata: Value('PaymentMode: ${v.paymentMode ?? "N/A"}, Party: ${v.partyLedgerId ?? "N/A"}'),
+        ),
+      );
+
       await (db.delete(
         db.stockTransactions,
       )..where((t) => t.voucherId.equals(vid))).go();
@@ -486,13 +561,14 @@ class AccountingEngine {
     return (res.data['net_balance'] as num).toDouble();
   }
 
-  // 5. Get Ledger Statement
+  // 5. Get Ledger Statement (Includes both direct postings and settled cash transactions)
   Future<List<LedgerStatementRow>> getLedgerStatement(String ledgerId) async {
     final ledger = await (db.select(
       db.ledgers,
     )..where((t) => t.id.equals(ledgerId))).getSingle();
 
-    final query =
+    // 1. Direct double-entry splits posted to this ledger
+    final directQuery =
         db.select(db.voucherEntries).join([
           innerJoin(
             db.vouchers,
@@ -504,21 +580,28 @@ class AccountingEngine {
                   db.vouchers.status.equals('POSTED')),
         );
 
-    query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
+    final directResults = await directQuery.get();
+    final directVoucherIds = directResults
+        .map((r) => r.readTable(db.voucherEntries).voucherId)
+        .toSet();
 
-    final results = await query.get();
+    // 2. Direct Cash transactions where this party is the named party on the voucher header
+    // (e.g. Cash Sale or Cash Purchase where cash is debited/credited directly without customer debt)
+    final cashVouchersQuery = db.select(db.vouchers)..where(
+      (v) =>
+          v.partyLedgerId.equals(ledgerId) &
+          (v.paymentMode.equals('Cash') | v.paymentMode.equals('CASH')) &
+          (v.status.isNull() | v.status.equals('POSTED')),
+    );
+    final cashVouchers = await cashVouchersQuery.get();
 
-    double currentBalance = ledger.openingBalance;
-    List<LedgerStatementRow> statement = [];
+    final List<_StatementItem> items = [];
 
-    for (final row in results) {
+    for (final row in directResults) {
       final entry = row.readTable(db.voucherEntries);
       final voucher = row.readTable(db.vouchers);
-
-      currentBalance += entry.debitAmount - entry.creditAmount;
-
-      statement.add(
-        LedgerStatementRow(
+      items.add(
+        _StatementItem(
           voucherId: voucher.id,
           date: voucher.date,
           voucherNo: voucher.voucherNumber,
@@ -526,12 +609,125 @@ class AccountingEngine {
           narration: voucher.narration ?? '',
           debit: entry.debitAmount,
           credit: entry.creditAmount,
+          paymentMode: voucher.paymentMode,
+        ),
+      );
+    }
+
+    for (final voucher in cashVouchers) {
+      if (directVoucherIds.contains(voucher.id)) continue;
+
+      // Calculate total amount from voucher entries (sum of debits)
+      final vEntries = await (db.select(db.voucherEntries)
+            ..where((t) => t.voucherId.equals(voucher.id)))
+          .get();
+      final totalAmount = vEntries.fold<double>(
+        0.0,
+        (sum, e) => sum + e.debitAmount,
+      );
+
+      items.add(
+        _StatementItem(
+          voucherId: voucher.id,
+          date: voucher.date,
+          voucherNo: voucher.voucherNumber,
+          voucherType: voucher.voucherType,
+          narration: voucher.narration ??
+              (voucher.voucherType == 'Sales'
+                  ? 'Cash Sale (Paid)'
+                  : 'Cash Purchase (Paid)'),
+          debit: totalAmount,
+          credit: totalAmount,
+          paymentMode: 'Cash',
+        ),
+      );
+    }
+
+    // Sort chronologically by date and voucher number
+    items.sort((a, b) {
+      final cmp = a.date.compareTo(b.date);
+      if (cmp != 0) return cmp;
+      return a.voucherNo.compareTo(b.voucherNo);
+    });
+
+    double currentBalance = ledger.openingBalance;
+    List<LedgerStatementRow> statement = [];
+
+    for (final item in items) {
+      currentBalance += item.debit - item.credit;
+      statement.add(
+        LedgerStatementRow(
+          voucherId: item.voucherId,
+          date: item.date,
+          voucherNo: item.voucherNo,
+          voucherType: item.voucherType,
+          narration: item.narration,
+          debit: item.debit,
+          credit: item.credit,
           runningBalance: currentBalance,
+          paymentMode: item.paymentMode,
         ),
       );
     }
 
     return statement;
+  }
+
+  /// 5b. Fetch all Cash transactions with associated Customer / Supplier Party Name
+  Future<List<CashTransactionRow>> getCashTransactions() async {
+    final cashLedger = await (db.select(db.ledgers)..where((t) => t.id.equals('cash'))).getSingleOrNull();
+    double currentBalance = cashLedger?.openingBalance ?? 0.0;
+
+    final query = db.select(db.voucherEntries).join([
+      innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.voucherEntries.voucherId)),
+    ])..where(
+      db.voucherEntries.ledgerId.equals('cash') &
+      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
+    );
+    query.orderBy([OrderingTerm.asc(db.vouchers.date), OrderingTerm.asc(db.vouchers.voucherNumber)]);
+    final results = await query.get();
+
+    final List<CashTransactionRow> list = [];
+    for (final row in results) {
+      final entry = row.readTable(db.voucherEntries);
+      final voucher = row.readTable(db.vouchers);
+
+      final isCashIn = entry.debitAmount > 0;
+      final amount = isCashIn ? entry.debitAmount : entry.creditAmount;
+      currentBalance += entry.debitAmount - entry.creditAmount;
+
+      String partyName = 'Cash Counter / Walk-in';
+      if (voucher.partyLedgerId != null) {
+        final party = await (db.select(db.ledgers)..where((t) => t.id.equals(voucher.partyLedgerId!))).getSingleOrNull();
+        if (party != null) {
+          partyName = party.name;
+        }
+      } else {
+        final otherEntries = await (db.select(db.voucherEntries).join([
+          innerJoin(db.ledgers, db.ledgers.id.equalsExp(db.voucherEntries.ledgerId)),
+        ])..where(
+          db.voucherEntries.voucherId.equals(voucher.id) &
+          db.voucherEntries.ledgerId.isNotIn(['cash', 'sales', 'purchase', 'cgst', 'sgst'])
+        )).get();
+        if (otherEntries.isNotEmpty) {
+          partyName = otherEntries.first.readTable(db.ledgers).name;
+        }
+      }
+
+      list.add(CashTransactionRow(
+        voucherId: voucher.id,
+        date: voucher.date,
+        voucherNo: voucher.voucherNumber,
+        voucherType: voucher.voucherType,
+        partyName: partyName,
+        narration: voucher.narration ?? '',
+        amount: amount,
+        isCashIn: isCashIn,
+        runningBalance: currentBalance,
+      ));
+    }
+
+    return list;
   }
 
   // 6. Calculate Stock Level for single item
@@ -700,7 +896,7 @@ class AccountingEngine {
             voucherId: r.data['voucher_id'] as String,
             voucherNumber: r.data['voucher_number'] as String,
             voucherType: r.data['voucher_type'] as String,
-            date: DateTime.parse(r.data['date'].toString()),
+            date: r.read<DateTime>('date'),
             narration: r.data['narration'] as String? ?? '',
             totalAmount: (r.data['total_debit'] as num).toDouble(),
             totalDebit: (r.data['total_debit'] as num).toDouble(),

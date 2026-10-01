@@ -70,17 +70,21 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                 child: Column(
                   children: [
                     TextFormField(
+                      autofocus: true,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(labelText: 'Stock Item Name *'),
                       validator: (val) => val == null || val.trim().isEmpty ? 'Please enter item name' : null,
                       onSaved: (val) => name = val!.trim(),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(labelText: 'SKU / Part Number'),
                       onSaved: (val) => sku = val?.trim() ?? '',
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
+                      textInputAction: TextInputAction.next,
                       initialValue: 'PCS',
                       decoration: const InputDecoration(labelText: 'Unit of Measure (PCS, KGS, etc.)'),
                       onSaved: (val) => unit = val?.trim() ?? 'PCS',
@@ -90,7 +94,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                       children: [
                         Expanded(
                           child: TextFormField(
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Opening Quantity'),
                             onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -98,7 +103,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Opening Rate (Rs.)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -110,7 +116,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                       children: [
                         Expanded(
                           child: TextFormField(
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -118,7 +125,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -205,7 +213,9 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                 child: Column(
                   children: [
                     TextFormField(
+                      autofocus: true,
                       initialValue: name,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(labelText: 'Stock Item Name *'),
                       validator: (val) => val == null || val.trim().isEmpty ? 'Please enter item name' : null,
                       onSaved: (val) => name = val!.trim(),
@@ -213,12 +223,14 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       initialValue: sku,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(labelText: 'SKU / Part Number'),
                       onSaved: (val) => sku = val?.trim() ?? '',
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       initialValue: unit,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(labelText: 'Unit of Measure'),
                       onSaved: (val) => unit = val?.trim() ?? 'PCS',
                     ),
@@ -228,7 +240,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: openingQty.toString(),
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Opening Qty'),
                             onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -237,7 +250,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: openingRate.toString(),
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Opening Rate (Rs.)'),
                             onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -250,7 +264,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: purchaseRate.toString(),
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
                             onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -259,7 +274,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         Expanded(
                           child: TextFormField(
                             initialValue: salesRate.toString(),
-                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
                             onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
                           ),
@@ -575,7 +591,11 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                                                 borderRadius: BorderRadius.circular(4),
                                               ),
                                               child: Text(
-                                                item.quantity <= 0 ? 'Out of Stock' : 'Low Stock',
+                                                item.quantity < 0
+                                                    ? 'Negative Stock'
+                                                    : item.quantity == 0
+                                                        ? 'Out of Stock'
+                                                        : 'Low Stock',
                                                 style: TextStyle(
                                                   color: item.quantity <= 0 ? AppColors.error : AppColors.warning,
                                                   fontSize: 10,

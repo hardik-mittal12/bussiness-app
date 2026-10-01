@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'data/database.dart';
 import 'core/accounting_engine.dart';
@@ -117,12 +118,31 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
         activePage = DashboardPage(onNavigate: _onNavigate);
     }
 
-    return Scaffold(
-      body: Row(
-        children: [
-          Sidebar(currentIndex: _currentIndex, onTap: _onNavigate),
-          Expanded(child: activePage),
-        ],
+    final shortcuts = <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.f1): () => _onNavigate(0),
+      const SingleActivator(LogicalKeyboardKey.f2): () => _onNavigate(1),
+      const SingleActivator(LogicalKeyboardKey.f3): () => _onNavigate(2),
+      const SingleActivator(LogicalKeyboardKey.f4): () => _onNavigate(3),
+      const SingleActivator(LogicalKeyboardKey.f5): () => _onNavigate(4),
+      const SingleActivator(LogicalKeyboardKey.f6): () => _onNavigate(5),
+      const SingleActivator(LogicalKeyboardKey.f7): () => _onNavigate(6),
+      const SingleActivator(LogicalKeyboardKey.f8): () => _onNavigate(7),
+      const SingleActivator(LogicalKeyboardKey.f9): () => _onNavigate(8),
+      const SingleActivator(LogicalKeyboardKey.keyN, control: true): () => _onNavigate(4),
+    };
+
+    return CallbackShortcuts(
+      bindings: shortcuts,
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: Row(
+            children: [
+              Sidebar(currentIndex: _currentIndex, onTap: _onNavigate),
+              Expanded(child: activePage),
+            ],
+          ),
+        ),
       ),
     );
   }

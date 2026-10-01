@@ -12,6 +12,7 @@ import 'theme/app_theme.dart';
 import 'widgets/print_preview_dialog.dart';
 
 class InvoiceRowItem {
+  final String id = const Uuid().v4();
   StockItem? item;
   double quantity;
   double rate;
@@ -92,6 +93,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
   final Uuid uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
   final FocusNode _narrationFocusNode = FocusNode();
+  final ScrollController _rowsScrollController = ScrollController();
   final TextEditingController _contactSearchController =
       TextEditingController();
   final FocusNode _contactSearchFocusNode = FocusNode();
@@ -120,12 +122,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
   );
   final NumberFormat _quantityFormat = NumberFormat('#,##0.##');
   PrinterPaperSize _selectedPaperSize = PrinterPaperSize.a4;
+  int _selectedCopies = 1;
   bool _isSubmitting = false;
   bool _isDataLoaded = false;
 
   @override
   void dispose() {
     _narrationFocusNode.dispose();
+    _rowsScrollController.dispose();
     _contactSearchController.dispose();
     _contactSearchFocusNode.dispose();
     _discountController.dispose();
@@ -662,27 +666,233 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         entries: entries,
         stockTransactions: stockTxs,
         existingVoucherId: widget.existingVoucher?.id,
+        allowNegativeStock: true,
       );
 
       if (mounted) {
+        final viewModel = _buildCurrentInvoiceViewModel(savedVoucherNo);
         if (andPrint) {
-          final viewModel = _buildCurrentInvoiceViewModel(savedVoucherNo);
           await InvoicePrinter.printInvoice(
             context: context,
             db: db,
             invoice: viewModel,
             paperSize: _selectedPaperSize,
+            copies: _selectedCopies,
           );
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.success,
-            content: Text(
-              '$_invoiceType Invoice $savedVoucherNo saved successfully!',
-            ),
-          ),
+        if (!mounted) return;
+
+        // Show confirmation dialog with choice for number of copies & paper size
+        int modalCopies = _selectedCopies;
+        PrinterPaperSize modalPaperSize = _selectedPaperSize;
+
+        await showDialog(
+          context: context,
+          builder: (dialogCtx) {
+            return StatefulBuilder(
+              builder: (dialogCtx, setModalState) {
+                return AlertDialog(
+                  backgroundColor: AppColors.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  title: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        color: AppColors.success,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '$_invoiceType Invoice $savedVoucherNo Created',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  content: SizedBox(
+                    width: 440,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Invoice #$savedVoucherNo has been saved successfully in $_paymentMode mode.',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Choose Number of Copies to Print:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceSecondary,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              isExpanded: true,
+                              value: modalCopies,
+                              dropdownColor: AppColors.surface,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 1,
+                                  child: Text('1 Copy (Original for Recipient)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 2,
+                                  child: Text(
+                                    '2 Copies (Original + Duplicate)',
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 3,
+                                  child: Text(
+                                    '3 Copies (Original + Duplicate + Triplicate)',
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 4,
+                                  child: Text('4 Copies'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 5,
+                                  child: Text('5 Copies'),
+                                ),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setModalState(() => modalCopies = val);
+                                  setState(() => _selectedCopies = val);
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Paper Format:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceSecondary,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<PrinterPaperSize>(
+                              isExpanded: true,
+                              value: modalPaperSize,
+                              dropdownColor: AppColors.surface,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textPrimary,
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: PrinterPaperSize.a4,
+                                  child: Text('A4 Standard Print / PDF'),
+                                ),
+                                DropdownMenuItem(
+                                  value: PrinterPaperSize.thermal80mm,
+                                  child: Text('80mm Thermal Receipt (POS)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: PrinterPaperSize.thermal58mm,
+                                  child: Text('58mm Thermal Receipt (POS)'),
+                                ),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setModalState(() => modalPaperSize = val);
+                                  setState(() => _selectedPaperSize = val);
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogCtx),
+                      child: const Text(
+                        'Done / New Bill',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.preview_rounded, size: 16),
+                      label: const Text('Preview'),
+                      onPressed: () async {
+                        await PrintPreviewDialog.show(
+                          dialogCtx,
+                          db: db,
+                          invoice: viewModel,
+                        );
+                      },
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.print, size: 16),
+                      label: Text(
+                        'Print ($modalCopies ${modalCopies == 1 ? 'Copy' : 'Copies'})',
+                      ),
+                      onPressed: () async {
+                        await InvoicePrinter.printInvoice(
+                          context: dialogCtx,
+                          db: db,
+                          invoice: viewModel,
+                          paperSize: modalPaperSize,
+                          copies: modalCopies,
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
+            );
+          },
         );
+
         if (widget.existingVoucher != null) {
           Navigator.pop(context);
         } else {
@@ -912,8 +1122,12 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               // Invoice Rows List
               Expanded(
                 child: ListView.builder(
+                  controller: _rowsScrollController,
                   itemCount: _rows.length,
-                  itemBuilder: (context, index) => _buildInvoiceRow(index),
+                  itemBuilder: (context, index) => KeyedSubtree(
+                    key: ValueKey(_rows[index].id),
+                    child: _buildInvoiceRow(index),
+                  ),
                 ),
               ),
 
@@ -941,11 +1155,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                       'Add Line Item',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    onPressed: () {
-                      setState(() {
-                        _rows.add(InvoiceRowItem());
-                      });
-                    },
+                    onPressed: _addNewRow,
                   ),
                   ElevatedButton.icon(
                     key: const ValueKey('invoice-add-new-stock-item'),
@@ -1035,6 +1245,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                       children: [
                         TextFormField(
                           autofocus: true,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
                             labelText: 'Item Name *',
                             hintText: 'e.g. Leather Formal Shoes Size 9',
@@ -1046,6 +1257,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
                             labelText: 'SKU / Item Code',
                             hintText: 'e.g. SK-001',
@@ -1054,6 +1266,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          textInputAction: TextInputAction.next,
                           initialValue: unit,
                           decoration: const InputDecoration(
                             labelText: 'Unit of Measure',
@@ -1069,6 +1282,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           children: [
                             Expanded(
                               child: TextFormField(
+                                textInputAction: TextInputAction.next,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                       decimal: true,
@@ -1083,6 +1297,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextFormField(
+                                textInputAction: TextInputAction.next,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                       decimal: true,
@@ -1101,6 +1316,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           children: [
                             Expanded(
                               child: TextFormField(
+                                textInputAction: TextInputAction.next,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                       decimal: true,
@@ -1115,6 +1331,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextFormField(
+                                textInputAction: TextInputAction.done,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                       decimal: true,
@@ -2138,14 +2355,27 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
     );
   }
 
-  void _advanceRow(int index) {
-    if (index == _rows.length - 1) {
-      setState(() {
-        _rows.add(InvoiceRowItem());
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+  void _addNewRow() {
+    setState(() {
+      _rows.add(InvoiceRowItem());
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_rowsScrollController.hasClients) {
+        _rowsScrollController.animateTo(
+          _rowsScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+      if (_rows.isNotEmpty) {
         _rows.last.itemFocusNode.requestFocus();
-      });
+      }
+    });
+  }
+
+  void _advanceRow(int index) {
+    if (index >= _rows.length - 1) {
+      _addNewRow();
     } else {
       _rows[index + 1].itemFocusNode.requestFocus();
     }
@@ -2253,6 +2483,80 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                             if (val != null)
                                               setState(
                                                 () => _selectedPaperSize = val,
+                                              );
+                                          },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            const Text(
+                              'Copies:',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceSecondary,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    isExpanded: true,
+                                    value: _selectedCopies,
+                                    dropdownColor: AppColors.surface,
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.arrow_drop_down,
+                                      color: AppColors.primary,
+                                      size: 18,
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 1,
+                                        child: Text('1 Copy'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 2,
+                                        child: Text('2 Copies (Orig+Dup)'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 3,
+                                        child: Text('3 Copies (Triplicate)'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 4,
+                                        child: Text('4 Copies'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 5,
+                                        child: Text('5 Copies'),
+                                      ),
+                                    ],
+                                    onChanged: _isSubmitting
+                                        ? null
+                                        : (val) {
+                                            if (val != null)
+                                              setState(
+                                                () => _selectedCopies = val,
                                               );
                                           },
                                   ),
@@ -2472,9 +2776,11 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                       ),
                                     )
                                   : const Icon(Icons.print_rounded, size: 16),
-                              label: const Text(
-                                'Save & Print',
-                                style: TextStyle(
+                              label: Text(
+                                _selectedCopies > 1
+                                    ? 'Save & Print ($_selectedCopies Copies)'
+                                    : 'Save & Print',
+                                style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                 ),

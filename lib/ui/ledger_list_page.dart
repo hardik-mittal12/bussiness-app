@@ -29,7 +29,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     final db = Provider.of<AppDatabase>(context, listen: false);
     
     // Query active, non-deleted ledgers ordered alphabetically A-Z
@@ -92,28 +92,34 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          autofocus: true,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Account Name *'),
                           validator: (val) => val == null || val.trim().isEmpty ? 'Please enter a name' : null,
                           onSaved: (val) => name = val!.trim(),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
-                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(labelText: 'Opening Balance (Rs.)'),
                           onSaved: (val) => openingBalance = double.tryParse(val ?? '0') ?? 0.0,
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Phone Number'),
                           onSaved: (val) => phone = val?.trim() ?? '',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Address'),
                           onSaved: (val) => address = val?.trim() ?? '',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          textInputAction: TextInputAction.done,
                           decoration: const InputDecoration(labelText: 'GSTIN / Tax Number'),
                           onSaved: (val) => taxNumber = val?.trim() ?? '',
                         ),
@@ -216,7 +222,9 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          autofocus: true,
                           initialValue: name,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Account Name *'),
                           validator: (val) => val == null || val.trim().isEmpty ? 'Please enter a name' : null,
                           onSaved: (val) => name = val!.trim(),
@@ -224,6 +232,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                         const SizedBox(height: 12),
                         TextFormField(
                           initialValue: openingBalance.toStringAsFixed(2),
+                          textInputAction: TextInputAction.next,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(labelText: 'Opening Balance (Rs.)'),
                           onSaved: (val) => openingBalance = double.tryParse(val ?? '0') ?? 0.0,
@@ -231,18 +240,21 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
                         const SizedBox(height: 12),
                         TextFormField(
                           initialValue: phone,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Phone Number'),
                           onSaved: (val) => phone = val?.trim() ?? '',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           initialValue: address,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(labelText: 'Address'),
                           onSaved: (val) => address = val?.trim() ?? '',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           initialValue: taxNumber,
+                          textInputAction: TextInputAction.done,
                           decoration: const InputDecoration(labelText: 'GSTIN / Tax Number'),
                           onSaved: (val) => taxNumber = val?.trim() ?? '',
                         ),
@@ -408,6 +420,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
           tabs: const [
             Tab(text: 'Customers (Sundry Debtors)'),
             Tab(text: 'Suppliers (Sundry Creditors)'),
+            Tab(text: 'Cash Transactions / Book'),
           ],
         ),
         actions: [
@@ -471,6 +484,7 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
               children: [
                 _buildLedgerList(_debtorsStream),
                 _buildLedgerList(_creditorsStream),
+                _buildCashTransactionsList(),
               ],
             ),
           ),
@@ -601,6 +615,228 @@ class _LedgerListPageState extends State<LedgerListPage> with SingleTickerProvid
               },
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildCashTransactionsList() {
+    final engine = Provider.of<AccountingEngine>(context, listen: false);
+
+    return FutureBuilder<List<CashTransactionRow>>(
+      future: engine.getCashTransactions(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+        }
+
+        final allTxs = snapshot.data ?? [];
+        final filteredTxs = allTxs.where((tx) {
+          if (_searchQuery.isEmpty) return true;
+          final q = _searchQuery.toLowerCase();
+          return tx.partyName.toLowerCase().contains(q) ||
+              tx.voucherNo.toLowerCase().contains(q) ||
+              tx.voucherType.toLowerCase().contains(q) ||
+              tx.narration.toLowerCase().contains(q);
+        }).toList();
+
+        final double totalCashIn = allTxs.where((tx) => tx.isCashIn).fold(0.0, (sum, tx) => sum + tx.amount);
+        final double totalCashOut = allTxs.where((tx) => !tx.isCashIn).fold(0.0, (sum, tx) => sum + tx.amount);
+        final double netBalance = allTxs.isNotEmpty ? allTxs.last.runningBalance : 0.0;
+
+        return Column(
+          children: [
+            // Top Summary Bar
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Cash In', style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(_currencyFormat.format(totalCashIn), style: const TextStyle(color: AppColors.success, fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Cash Out', style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(_currencyFormat.format(totalCashOut), style: const TextStyle(color: AppColors.error, fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Net Cash Balance', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(_currencyFormat.format(netBalance), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Cash Transactions List
+            Expanded(
+              child: filteredTxs.isEmpty
+                  ? Center(
+                      child: Text(
+                        _searchQuery.isNotEmpty
+                            ? 'No cash transactions match "$_searchQuery"'
+                            : 'No cash transactions recorded yet.',
+                        style: const TextStyle(color: AppColors.textMuted),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      itemCount: filteredTxs.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final tx = filteredTxs[filteredTxs.length - 1 - index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            leading: CircleAvatar(
+                              backgroundColor: tx.isCashIn ? AppColors.successBg : AppColors.errorBg,
+                              child: Icon(
+                                tx.isCashIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                                color: tx.isCashIn ? AppColors.success : AppColors.error,
+                                size: 20,
+                              ),
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.person_outline_rounded, size: 16, color: AppColors.textSecondary),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          tx.partyName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primaryBackground,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${tx.voucherType} #${tx.voucherNo}',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4.0),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    DateFormat('dd-MMM-yyyy hh:mm a').format(tx.date),
+                                    style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                  ),
+                                  if (tx.narration.isNotEmpty) ...[
+                                    const Text(' • ', style: TextStyle(color: AppColors.textMuted)),
+                                    Expanded(
+                                      child: Text(
+                                        tx.narration,
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${tx.isCashIn ? '+' : '-'} ${_currencyFormat.format(tx.amount)}',
+                                  style: TextStyle(
+                                    color: tx.isCashIn ? AppColors.success : AppColors.error,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Bal: ${_currencyFormat.format(tx.runningBalance)}',
+                                  style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                            onTap: () {
+                              VoucherDetailDialog.show(
+                                context,
+                                tx.voucherId,
+                                onDeleted: () => setState(() {}),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         );
       },
     );
@@ -780,6 +1016,24 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
                                       '#${row.voucherNumber}',
                                       style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                                     ),
+                                    if (row.paymentMode == 'Cash') ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.successBg,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text(
+                                          'CASH (PAID)',
+                                          style: TextStyle(
+                                            color: AppColors.success,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                                 subtitle: row.narration.isNotEmpty
@@ -788,16 +1042,23 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (row.debitAmount > 0)
+                                    if (row.paymentMode == 'Cash')
                                       Text(
-                                        '+ ${_currencyFormat.format(row.debitAmount)}',
-                                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                    if (row.creditAmount > 0)
-                                      Text(
-                                        '- ${_currencyFormat.format(row.creditAmount)}',
+                                        'PAID ${_currencyFormat.format(row.debitAmount)}',
                                         style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
+                                      )
+                                    else ...[
+                                      if (row.debitAmount > 0)
+                                        Text(
+                                          '+ ${_currencyFormat.format(row.debitAmount)}',
+                                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                                        ),
+                                      if (row.creditAmount > 0)
+                                        Text(
+                                          '- ${_currencyFormat.format(row.creditAmount)}',
+                                          style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 13),
+                                        ),
+                                    ],
                                     const SizedBox(width: 16),
                                     SizedBox(
                                       width: 100,

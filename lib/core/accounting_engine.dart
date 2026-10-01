@@ -1082,9 +1082,14 @@ class AccountingEngine {
       db.ledgers,
     )..where((t) => t.groupId.equals('creditors'))).get();
     double creditorsBal = 0.0;
+    double supplierAdvances = 0.0;
     for (final l in creditorLedgers) {
       final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
-      if (bal < 0) creditorsBal += bal.abs();
+      if (bal < 0) {
+        creditorsBal += bal.abs();
+      } else if (bal > 0) {
+        supplierAdvances += bal;
+      }
     }
 
     final taxLedgers = await (db.select(
@@ -1122,10 +1127,18 @@ class AccountingEngine {
       db.ledgers,
     )..where((t) => t.groupId.equals('debtors'))).get();
     double debtorsBal = 0.0;
+    double customerAdvances = 0.0;
     for (final l in debtorLedgersList) {
       final bal = await getLedgerBalance(l.id, asOfDate: asOfDate);
-      if (bal > 0) debtorsBal += bal;
+      if (bal > 0) {
+        debtorsBal += bal;
+      } else if (bal < 0) {
+        customerAdvances += bal.abs();
+      }
     }
+
+    creditorsBal += customerAdvances;
+    debtorsBal += supplierAdvances;
 
     final closingStockVal = plReport.closingStockValue;
     final totalAssets = cashBal + bankBal + debtorsBal + closingStockVal;

@@ -175,11 +175,15 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           t.id.equals(_selectedLedgerId!)),
                 ))
                 .get();
-        contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        contactLedgers.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
 
         // Load inventory items
         final allItems = await db.select(db.stockItems).get();
-        allItems.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        allItems.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
         final stockStatus = await engine.getStockSummary();
         if (!mounted) return;
 
@@ -235,10 +239,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               (t) => t.groupId.equals(targetGroup) & t.isDeleted.equals(false),
             ))
             .get();
-    contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    contactLedgers.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
 
     final allItems = await db.select(db.stockItems).get();
-    allItems.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    allItems.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     final stockStatus = await engine.getStockSummary();
     if (!mounted) return;
 
@@ -518,17 +526,6 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             creditAmount: const drift.Value(0.0),
           ),
         );
-
-        // Record customer in entries so contact and bill history is linked, but debit == credit so balance impact is 0
-        entries.add(
-          VoucherEntriesCompanion.insert(
-            id: uuid.v4(),
-            voucherId: '',
-            ledgerId: _selectedLedgerId!,
-            debitAmount: drift.Value(grandTotal),
-            creditAmount: drift.Value(grandTotal),
-          ),
-        );
       } else {
         // Debt / Credit Sale: Customer ledger is debited (adds up to customer debt; receipt voucher required later)
         entries.add(
@@ -622,17 +619,6 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
             creditAmount: drift.Value(grandTotal),
           ),
         );
-
-        // Record supplier in entries so contact and bill history is linked, but credit == debit so balance impact is 0
-        entries.add(
-          VoucherEntriesCompanion.insert(
-            id: uuid.v4(),
-            voucherId: '',
-            ledgerId: _selectedLedgerId!,
-            debitAmount: drift.Value(grandTotal),
-            creditAmount: drift.Value(grandTotal),
-          ),
-        );
       } else {
         // Debt / Credit Purchase: Supplier ledger is credited (adds to supplier debt, payment voucher required later)
         entries.add(
@@ -668,6 +654,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
         voucherNumber: widget.existingVoucher != null ? _invoiceNumber : null,
         voucherType: _invoiceType,
         date: _invoiceDate,
+        partyLedgerId: _selectedLedgerId,
         narration: _narration,
         referenceNumber: _referenceNumber,
         paymentMode: _paymentMode,
@@ -1017,10 +1004,16 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
           builder: (dialogCtx, setDialogState) {
             return AlertDialog(
               backgroundColor: AppColors.surface,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               title: const Row(
                 children: [
-                  Icon(Icons.inventory_2_rounded, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.inventory_2_rounded,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   SizedBox(width: 8),
                   Text(
                     'Quick Add New Stock Item',
@@ -1046,32 +1039,59 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             labelText: 'Item Name *',
                             hintText: 'e.g. Leather Formal Shoes Size 9',
                           ),
-                          validator: (val) =>
-                              val == null || val.trim().isEmpty ? 'Please enter item name' : null,
+                          validator: (val) => val == null || val.trim().isEmpty
+                              ? 'Please enter item name'
+                              : null,
                           onSaved: (val) => name = val!.trim(),
                         ),
                         const SizedBox(height: 12),
+                        TextFormField(
+                          decoration: const InputDecoration(
+                            labelText: 'SKU / Item Code',
+                            hintText: 'e.g. SK-001',
+                          ),
+                          onSaved: (val) => sku = val?.trim() ?? '',
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: unit,
+                          decoration: const InputDecoration(
+                            labelText: 'Unit of Measure',
+                            hintText: 'pcs, kg, box, mtr',
+                          ),
+                          onSaved: (val) =>
+                              unit = val?.trim().isNotEmpty == true
+                              ? val!.trim()
+                              : 'pcs',
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
                               child: TextFormField(
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
-                                  labelText: 'SKU / Item Code',
-                                  hintText: 'e.g. SK-001',
+                                  labelText: 'Opening Quantity',
                                 ),
-                                onSaved: (val) => sku = val?.trim() ?? '',
+                                onSaved: (val) => openingQty =
+                                    double.tryParse(val ?? '0') ?? 0.0,
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextFormField(
-                                initialValue: unit,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
-                                  labelText: 'Unit of Measure',
-                                  hintText: 'pcs, kg, box, mtr',
+                                  labelText: 'Opening Rate (Rs.)',
                                 ),
-                                onSaved: (val) => unit =
-                                    val?.trim().isNotEmpty == true ? val!.trim() : 'pcs',
+                                onSaved: (val) => openingRate =
+                                    double.tryParse(val ?? '0') ?? 0.0,
                               ),
                             ),
                           ],
@@ -1081,37 +1101,29 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           children: [
                             Expanded(
                               child: TextFormField(
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'Sales Rate (Rs.)'),
-                                onSaved: (val) => salesRate = double.tryParse(val ?? '0') ?? 0.0,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                decoration: const InputDecoration(
+                                  labelText: 'Purchase Rate (Rs.)',
+                                ),
+                                onSaved: (val) => purchaseRate =
+                                    double.tryParse(val ?? '0') ?? 0.0,
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextFormField(
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'Purchase Rate (Rs.)'),
-                                onSaved: (val) => purchaseRate = double.tryParse(val ?? '0') ?? 0.0,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'Opening Stock Qty'),
-                                onSaved: (val) => openingQty = double.tryParse(val ?? '0') ?? 0.0,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextFormField(
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'Cost Rate (Rs.)'),
-                                onSaved: (val) => openingRate = double.tryParse(val ?? '0') ?? 0.0,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                decoration: const InputDecoration(
+                                  labelText: 'Sales Rate (Rs.)',
+                                ),
+                                onSaved: (val) => salesRate =
+                                    double.tryParse(val ?? '0') ?? 0.0,
                               ),
                             ),
                           ],
@@ -1124,7 +1136,10 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -1140,27 +1155,34 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             ? sku
                             : 'ITEM-${DateTime.now().millisecondsSinceEpoch % 100000}';
 
-                        await db.into(db.stockItems).insert(
-                          StockItemsCompanion.insert(
-                            id: newItemId,
-                            name: name,
-                            sku: drift.Value(finalSku),
-                            unitOfMeasure: drift.Value(unit),
-                            salesRate: drift.Value(salesRate),
-                            purchaseRate: drift.Value(purchaseRate),
-                            openingQuantity: drift.Value(openingQty),
-                            openingRate: drift.Value(openingRate),
-                            updatedAt: drift.Value(DateTime.now()),
-                            isSynced: const drift.Value(false),
-                          ),
-                        );
+                        await db
+                            .into(db.stockItems)
+                            .insert(
+                              StockItemsCompanion.insert(
+                                id: newItemId,
+                                name: name,
+                                sku: drift.Value(finalSku),
+                                unitOfMeasure: drift.Value(unit),
+                                salesRate: drift.Value(salesRate),
+                                purchaseRate: drift.Value(purchaseRate),
+                                openingQuantity: drift.Value(openingQty),
+                                openingRate: drift.Value(openingRate),
+                                updatedAt: drift.Value(DateTime.now()),
+                                isSynced: const drift.Value(false),
+                              ),
+                            );
 
                         // Reload all items & stock summary without losing current bill entries!
-                        final freshItems = await (db.select(db.stockItems)
-                          ..orderBy([(t) => drift.OrderingTerm.asc(t.name.lower())])).get();
+                        final freshItems =
+                            await (db.select(db.stockItems)..orderBy([
+                                  (t) => drift.OrderingTerm.asc(t.name.lower()),
+                                ]))
+                                .get();
                         final freshStock = await engine.getStockSummary();
 
-                        final newlyAddedItem = freshItems.firstWhere((i) => i.id == newItemId);
+                        final newlyAddedItem = freshItems.firstWhere(
+                          (i) => i.id == newItemId,
+                        );
 
                         if (mounted) {
                           setState(() {
@@ -1170,28 +1192,40 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             // If target row is provided or the last row is empty, assign it
                             int targetIdx = targetRowIndex ?? -1;
                             if (targetIdx == -1) {
-                              targetIdx = _rows.indexWhere((r) => r.item == null);
+                              targetIdx = _rows.indexWhere(
+                                (r) => r.item == null,
+                              );
                             }
                             if (targetIdx != -1 && targetIdx < _rows.length) {
                               final row = _rows[targetIdx];
                               row.item = newlyAddedItem;
                               row.rate = _invoiceType == 'Sales'
-                                  ? (newlyAddedItem.salesRate > 0 ? newlyAddedItem.salesRate : 0.0)
-                                  : (newlyAddedItem.purchaseRate > 0 ? newlyAddedItem.purchaseRate : 0.0);
+                                  ? (newlyAddedItem.salesRate > 0
+                                        ? newlyAddedItem.salesRate
+                                        : 0.0)
+                                  : (newlyAddedItem.purchaseRate > 0
+                                        ? newlyAddedItem.purchaseRate
+                                        : 0.0);
                               row.originalRate = row.rate;
                               if (row.quantity == 0) row.quantity = 1.0;
                               row.qtyController.text = row.quantity.toString();
-                              row.rateController.text = row.rate.toStringAsFixed(2);
+                              row.rateController.text = row.rate
+                                  .toStringAsFixed(2);
                             } else {
                               // Append a new row with this item
                               final newRow = InvoiceRowItem(
                                 item: newlyAddedItem,
                                 quantity: 1.0,
-                                rate: _invoiceType == 'Sales' ? newlyAddedItem.salesRate : newlyAddedItem.purchaseRate,
-                                originalRate: _invoiceType == 'Sales' ? newlyAddedItem.salesRate : newlyAddedItem.purchaseRate,
+                                rate: _invoiceType == 'Sales'
+                                    ? newlyAddedItem.salesRate
+                                    : newlyAddedItem.purchaseRate,
+                                originalRate: _invoiceType == 'Sales'
+                                    ? newlyAddedItem.salesRate
+                                    : newlyAddedItem.purchaseRate,
                               );
                               newRow.qtyController.text = '1';
-                              newRow.rateController.text = newRow.rate.toStringAsFixed(2);
+                              newRow.rateController.text = newRow.rate
+                                  .toStringAsFixed(2);
                               _rows.add(newRow);
                             }
                           });
@@ -1200,7 +1234,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               backgroundColor: AppColors.success,
-                              content: Text('Item "$name" created and added to invoice!'),
+                              content: Text(
+                                'Item "$name" created and added to invoice!',
+                              ),
                             ),
                           );
                         }
@@ -1353,14 +1389,18 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 avatar: Icon(
                   Icons.credit_card_rounded,
                   size: 14,
-                  color: _paymentMode == 'Debt' ? Colors.white : AppColors.textSecondary,
+                  color: _paymentMode == 'Debt'
+                      ? Colors.white
+                      : AppColors.textSecondary,
                 ),
                 label: const Text('Debt / Credit'),
                 selected: _paymentMode == 'Debt',
                 selectedColor: AppColors.primary,
                 backgroundColor: AppColors.surfaceSecondary,
                 labelStyle: TextStyle(
-                  color: _paymentMode == 'Debt' ? Colors.white : AppColors.textPrimary,
+                  color: _paymentMode == 'Debt'
+                      ? Colors.white
+                      : AppColors.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1374,14 +1414,18 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                 avatar: Icon(
                   Icons.payments_outlined,
                   size: 14,
-                  color: _paymentMode == 'Cash' ? Colors.white : AppColors.textSecondary,
+                  color: _paymentMode == 'Cash'
+                      ? Colors.white
+                      : AppColors.textSecondary,
                 ),
                 label: const Text('Cash (Paid)'),
                 selected: _paymentMode == 'Cash',
                 selectedColor: AppColors.success,
                 backgroundColor: AppColors.surfaceSecondary,
                 labelStyle: TextStyle(
-                  color: _paymentMode == 'Cash' ? Colors.white : AppColors.textPrimary,
+                  color: _paymentMode == 'Cash'
+                      ? Colors.white
+                      : AppColors.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1395,7 +1439,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                     : '• Debt Bill: Unpaid credit sale; adds to customer debt',
                 style: TextStyle(
                   fontSize: 11,
-                  color: _paymentMode == 'Cash' ? AppColors.success : AppColors.textMuted,
+                  color: _paymentMode == 'Cash'
+                      ? AppColors.success
+                      : AppColors.textMuted,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -2190,11 +2236,15 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                       ),
                                       DropdownMenuItem(
                                         value: PrinterPaperSize.thermal58mm,
-                                        child: Text('58mm Thermal Receipt (POS)'),
+                                        child: Text(
+                                          '58mm Thermal Receipt (POS)',
+                                        ),
                                       ),
                                       DropdownMenuItem(
                                         value: PrinterPaperSize.thermal80mm,
-                                        child: Text('80mm Thermal Receipt (POS)'),
+                                        child: Text(
+                                          '80mm Thermal Receipt (POS)',
+                                        ),
                                       ),
                                     ],
                                     onChanged: _isSubmitting

@@ -12,15 +12,23 @@ import 'print_preview_dialog.dart';
 class VoucherDetailDialog extends StatelessWidget {
   final String voucherId;
   final VoidCallback? onDeleted;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(
+    symbol: 'Rs. ',
+    decimalDigits: 2,
+  );
 
   VoucherDetailDialog({super.key, required this.voucherId, this.onDeleted});
 
-  static void show(BuildContext context, String voucherId, {VoidCallback? onDeleted}) {
+  static void show(
+    BuildContext context,
+    String voucherId, {
+    VoidCallback? onDeleted,
+  }) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.5),
-      builder: (context) => VoucherDetailDialog(voucherId: voucherId, onDeleted: onDeleted),
+      builder: (context) =>
+          VoucherDetailDialog(voucherId: voucherId, onDeleted: onDeleted),
     );
   }
 
@@ -54,7 +62,11 @@ class VoucherDetailDialog extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 40),
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: AppColors.error,
+                    size: 40,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Error: ${snapshot.error ?? "Voucher not found"}',
@@ -68,7 +80,9 @@ class VoucherDetailDialog extends StatelessWidget {
 
           final detail = snapshot.data!;
           final voucher = detail.voucher;
-          final isInvoice = voucher.voucherType == 'Sales' || voucher.voucherType == 'Purchase';
+          final isInvoice =
+              voucher.voucherType == 'Sales' ||
+              voucher.voucherType == 'Purchase';
 
           return Container(
             width: 800,
@@ -95,7 +109,11 @@ class VoucherDetailDialog extends StatelessWidget {
                         if (isInvoice) ...[
                           const Text(
                             'Inventory Line Items',
-                            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           _buildInventoryTable(detail.stockTransactions),
@@ -104,17 +122,26 @@ class VoucherDetailDialog extends StatelessWidget {
                         ] else ...[
                           const Text(
                             'Double-Entry Postings',
-                            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           _buildLedgerEntriesTable(detail.entries),
                         ],
 
-                        if (voucher.narration != null && voucher.narration!.isNotEmpty) ...[
+                        if (voucher.narration != null &&
+                            voucher.narration!.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           const Text(
                             'Narration / Remarks',
-                            style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Container(
@@ -127,10 +154,14 @@ class VoucherDetailDialog extends StatelessWidget {
                             ),
                             child: Text(
                               voucher.narration!,
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, height: 1.4),
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
                             ),
                           ),
-                        ]
+                        ],
                       ],
                     ),
                   ),
@@ -171,18 +202,31 @@ class VoucherDetailDialog extends StatelessWidget {
               children: [
                 Text(
                   voucher.voucherNumber,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: isCancelled ? AppColors.surfaceSecondary : badgeBg,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: isCancelled ? AppColors.borderStrong : badgeColor.withOpacity(0.3)),
+                    border: Border.all(
+                      color: isCancelled
+                          ? AppColors.borderStrong
+                          : badgeColor.withOpacity(0.3),
+                    ),
                   ),
                   child: Text(
-                    isCancelled ? 'CANCELLED' : voucher.voucherType.toUpperCase(),
+                    isCancelled
+                        ? 'CANCELLED'
+                        : voucher.voucherType.toUpperCase(),
                     style: TextStyle(
                       color: isCancelled ? AppColors.textMuted : badgeColor,
                       fontSize: 11,
@@ -196,18 +240,29 @@ class VoucherDetailDialog extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Date: ${DateFormat('dd-MMM-yyyy  hh:mm a').format(voucher.date)}',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
-        if (voucher.referenceNumber != null && voucher.referenceNumber!.isNotEmpty)
+        if (voucher.referenceNumber != null &&
+            voucher.referenceNumber!.isNotEmpty)
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const Text('Reference / Ref No.', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
+              const Text(
+                'Reference / Ref No.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+              ),
               Text(
                 voucher.referenceNumber!,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -216,7 +271,9 @@ class VoucherDetailDialog extends StatelessWidget {
   }
 
   Widget _buildContactCard(Ledger contact, Voucher voucher) {
-    final title = voucher.voucherType == 'Sales' ? 'Customer Account' : 'Supplier Account';
+    final title = voucher.voucherType == 'Sales'
+        ? 'Customer Account'
+        : 'Supplier Account';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -227,26 +284,64 @@ class VoucherDetailDialog extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.account_balance_wallet_rounded, color: AppColors.primary, size: 24),
+          const Icon(
+            Icons.account_balance_wallet_rounded,
+            color: AppColors.primary,
+            size: 24,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(contact.name, style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold)),
+                Text(
+                  contact.name,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 if (contact.phone != null && contact.phone!.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Text('Phone: ${contact.phone}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  Text(
+                    'Phone: ${contact.phone}',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
                 ],
                 if (contact.address != null && contact.address!.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text('Address: ${contact.address}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  Text(
+                    'Address: ${contact.address}',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
                 ],
-                if (contact.taxNumber != null && contact.taxNumber!.isNotEmpty) ...[
+                if (contact.taxNumber != null &&
+                    contact.taxNumber!.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text('GSTIN: ${contact.taxNumber}', style: const TextStyle(color: AppColors.success, fontSize: 13, fontWeight: FontWeight.bold)),
+                  Text(
+                    'GSTIN: ${contact.taxNumber}',
+                    style: const TextStyle(
+                      color: AppColors.success,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -271,11 +366,64 @@ class VoucherDetailDialog extends StatelessWidget {
             color: AppColors.surfaceSecondary,
             child: const Row(
               children: [
-                Expanded(flex: 4, child: Text('Product Description', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
-                Expanded(flex: 2, child: Text('SKU / Code', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
-                Expanded(flex: 2, child: Text('Qty', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                Expanded(flex: 2, child: Text('Rate', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                Expanded(flex: 3, child: Text('Amount', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                Expanded(
+                  flex: 4,
+                  child: Text(
+                    'Product Description',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    'SKU / Code',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    'Qty',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    'Rate',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'Amount',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
               ],
             ),
           ),
@@ -291,10 +439,17 @@ class VoucherDetailDialog extends StatelessWidget {
               final amount = isRep ? 0.0 : (qty * item.tx.rate);
 
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  color: isRep ? AppColors.warningBg.withOpacity(0.3) : AppColors.surface,
-                  border: const Border(bottom: BorderSide(color: AppColors.border)),
+                  color: isRep
+                      ? AppColors.warningBg.withOpacity(0.3)
+                      : AppColors.surface,
+                  border: const Border(
+                    bottom: BorderSide(color: AppColors.border),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -303,25 +458,71 @@ class VoucherDetailDialog extends StatelessWidget {
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(item.itemName, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+                            child: Text(
+                              item.itemName,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
                           if (isRep)
                             Container(
                               margin: const EdgeInsets.only(left: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: AppColors.warningBg, borderRadius: BorderRadius.circular(4)),
-                              child: const Text('REPLACEMENT', style: TextStyle(color: AppColors.warning, fontSize: 9, fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.warningBg,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'REPLACEMENT',
+                                style: TextStyle(
+                                  color: AppColors.warning,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                         ],
                       ),
                     ),
-                    Expanded(flex: 2, child: Text(item.sku ?? 'N/A', style: const TextStyle(color: AppColors.textMuted, fontSize: 13))),
-                    Expanded(flex: 2, child: Text(qty.toStringAsFixed(0), style: const TextStyle(color: AppColors.textPrimary, fontSize: 13), textAlign: TextAlign.right)),
                     Expanded(
                       flex: 2,
                       child: Text(
-                        isRep ? 'Rs. 0.00' : _currencyFormat.format(item.tx.rate),
-                        style: TextStyle(color: isRep ? AppColors.warning : AppColors.textPrimary, fontSize: 13),
+                        item.sku ?? 'N/A',
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        qty.toStringAsFixed(0),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        isRep
+                            ? 'Rs. 0.00'
+                            : _currencyFormat.format(item.tx.rate),
+                        style: TextStyle(
+                          color: isRep
+                              ? AppColors.warning
+                              : AppColors.textPrimary,
+                          fontSize: 13,
+                        ),
                         textAlign: TextAlign.right,
                       ),
                     ),
@@ -329,7 +530,13 @@ class VoucherDetailDialog extends StatelessWidget {
                       flex: 3,
                       child: Text(
                         isRep ? 'Rs. 0.00' : _currencyFormat.format(amount),
-                        style: TextStyle(color: isRep ? AppColors.warning : AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: isRep
+                              ? AppColors.warning
+                              : AppColors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
                         textAlign: TextAlign.right,
                       ),
                     ),
@@ -352,18 +559,24 @@ class VoucherDetailDialog extends StatelessWidget {
 
     for (final entry in detail.entries) {
       if (entry.ledgerId == 'sales' || entry.ledgerId == 'purchase') {
-        subtotal = entry.debitAmount > 0 ? entry.debitAmount : entry.creditAmount;
+        subtotal = entry.debitAmount > 0
+            ? entry.debitAmount
+            : entry.creditAmount;
       } else if (entry.ledgerId == 'cgst') {
         cgst = entry.debitAmount > 0 ? entry.debitAmount : entry.creditAmount;
       } else if (entry.ledgerId == 'sgst') {
         sgst = entry.debitAmount > 0 ? entry.debitAmount : entry.creditAmount;
-      } else if (entry.ledgerId == detail.contactLedger.id) {
-        grandTotal = entry.debitAmount > 0 ? entry.debitAmount : entry.creditAmount;
       }
     }
+    grandTotal = detail.transactionAmount;
 
     if (subtotal == 0) {
-      subtotal = detail.stockTransactions.fold(0.0, (sum, st) => sum + (st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate)));
+      subtotal = detail.stockTransactions.fold(
+        0.0,
+        (sum, st) =>
+            sum +
+            (st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate)),
+      );
     }
     if (grandTotal == 0) {
       grandTotal = subtotal + cgst + sgst;
@@ -384,7 +597,11 @@ class VoucherDetailDialog extends StatelessWidget {
             _buildSummaryRow('Subtotal', subtotal),
             if (discount > 0) ...[
               const SizedBox(height: 6),
-              _buildSummaryRow('Discount', discount, valueColor: AppColors.error),
+              _buildSummaryRow(
+                'Discount',
+                discount,
+                valueColor: AppColors.error,
+              ),
             ],
             if (cgst > 0) ...[
               const SizedBox(height: 6),
@@ -395,14 +612,24 @@ class VoucherDetailDialog extends StatelessWidget {
               _buildSummaryRow('SGST (9%)', sgst),
             ],
             const Divider(color: AppColors.borderStrong, height: 16),
-            _buildSummaryRow('Grand Total', grandTotal, isBold: true, valueColor: AppColors.success),
+            _buildSummaryRow(
+              'Grand Total',
+              grandTotal,
+              isBold: true,
+              valueColor: AppColors.success,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSummaryRow(String label, double amount, {bool isBold = false, Color? valueColor}) {
+  Widget _buildSummaryRow(
+    String label,
+    double amount, {
+    bool isBold = false,
+    Color? valueColor,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -417,7 +644,9 @@ class VoucherDetailDialog extends StatelessWidget {
         Text(
           _currencyFormat.format(amount),
           style: TextStyle(
-            color: valueColor ?? (isBold ? AppColors.textPrimary : AppColors.textSecondary),
+            color:
+                valueColor ??
+                (isBold ? AppColors.textPrimary : AppColors.textSecondary),
             fontSize: isBold ? 15 : 13,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
           ),
@@ -440,9 +669,41 @@ class VoucherDetailDialog extends StatelessWidget {
             color: AppColors.surfaceSecondary,
             child: const Row(
               children: [
-                Expanded(flex: 5, child: Text('Account Ledger Name', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold))),
-                Expanded(flex: 3, child: Text('Debit Amount', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                Expanded(flex: 3, child: Text('Credit Amount', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    'Account Ledger Name',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'Debit Amount',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'Credit Amount',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
               ],
             ),
           ),
@@ -453,7 +714,10 @@ class VoucherDetailDialog extends StatelessWidget {
             itemBuilder: (context, index) {
               final entry = entries[index];
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: const BoxDecoration(
                   border: Border(bottom: BorderSide(color: AppColors.border)),
                 ),
@@ -462,11 +726,26 @@ class VoucherDetailDialog extends StatelessWidget {
                     Expanded(
                       flex: 5,
                       child: FutureBuilder<Ledger?>(
-                        future: (Provider.of<AppDatabase>(context, listen: false).select(Provider.of<AppDatabase>(context, listen: false).ledgers)..where((t) => t.id.equals(entry.ledgerId))).getSingleOrNull(),
+                        future:
+                            (Provider.of<AppDatabase>(
+                                    context,
+                                    listen: false,
+                                  ).select(
+                                    Provider.of<AppDatabase>(
+                                      context,
+                                      listen: false,
+                                    ).ledgers,
+                                  )
+                                  ..where((t) => t.id.equals(entry.ledgerId)))
+                                .getSingleOrNull(),
                         builder: (context, snap) {
                           return Text(
                             snap.data?.name ?? entry.ledgerId,
-                            style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
                           );
                         },
                       ),
@@ -474,16 +753,28 @@ class VoucherDetailDialog extends StatelessWidget {
                     Expanded(
                       flex: 3,
                       child: Text(
-                        entry.debitAmount > 0 ? _currencyFormat.format(entry.debitAmount) : '-',
-                        style: const TextStyle(color: AppColors.success, fontSize: 13, fontWeight: FontWeight.w600),
+                        entry.debitAmount > 0
+                            ? _currencyFormat.format(entry.debitAmount)
+                            : '-',
+                        style: const TextStyle(
+                          color: AppColors.success,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                         textAlign: TextAlign.right,
                       ),
                     ),
                     Expanded(
                       flex: 3,
                       child: Text(
-                        entry.creditAmount > 0 ? _currencyFormat.format(entry.creditAmount) : '-',
-                        style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w600),
+                        entry.creditAmount > 0
+                            ? _currencyFormat.format(entry.creditAmount)
+                            : '-',
+                        style: const TextStyle(
+                          color: AppColors.error,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                         textAlign: TextAlign.right,
                       ),
                     ),
@@ -498,7 +789,9 @@ class VoucherDetailDialog extends StatelessWidget {
   }
 
   Widget _buildFooterActions(BuildContext context, VoucherDetail detail) {
-    final isInvoice = detail.voucher.voucherType == 'Sales' || detail.voucher.voucherType == 'Purchase';
+    final isInvoice =
+        detail.voucher.voucherType == 'Sales' ||
+        detail.voucher.voucherType == 'Purchase';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -513,7 +806,9 @@ class VoucherDetailDialog extends StatelessWidget {
           ),
           icon: const Icon(Icons.delete_forever_rounded, size: 16),
           label: Text(
-            isInvoice ? 'Delete Invoice' : 'Delete ${detail.voucher.voucherType}',
+            isInvoice
+                ? 'Delete Invoice'
+                : 'Delete ${detail.voucher.voucherType}',
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
           ),
           onPressed: () async {
@@ -523,7 +818,10 @@ class VoucherDetailDialog extends StatelessWidget {
                 backgroundColor: AppColors.surface,
                 title: Text(
                   'Permanently Delete ${detail.voucher.voucherType}?',
-                  style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 content: Text(
                   'Are you sure you want to permanently delete ${detail.voucher.voucherType} #${detail.voucher.voucherNumber}?\n\n'
@@ -531,16 +829,30 @@ class VoucherDetailDialog extends StatelessWidget {
                   '• Stock quantities and inventory history will be restored.\n'
                   '• Customer and ledger balances will be reversed.\n\n'
                   'This action cannot be undone.',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
                 ),
                 actions: [
                   TextButton(
-                    child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: AppColors.textMuted),
+                    ),
                     onPressed: () => Navigator.pop(ctx, false),
                   ),
                   ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-                    child: const Text('Delete Permanently', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.error,
+                    ),
+                    child: const Text(
+                      'Delete Permanently',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: () => Navigator.pop(ctx, true),
                   ),
                 ],
@@ -550,7 +862,10 @@ class VoucherDetailDialog extends StatelessWidget {
             if (confirm == true) {
               if (!context.mounted) return;
               try {
-                final engine = Provider.of<AccountingEngine>(context, listen: false);
+                final engine = Provider.of<AccountingEngine>(
+                  context,
+                  listen: false,
+                );
                 await engine.deleteVoucher(detail.voucher.id);
                 if (context.mounted) {
                   Navigator.pop(context);
@@ -558,14 +873,19 @@ class VoucherDetailDialog extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       backgroundColor: AppColors.error,
-                      content: Text('${detail.voucher.voucherType} #${detail.voucher.voucherNumber} permanently deleted.'),
+                      content: Text(
+                        '${detail.voucher.voucherType} #${detail.voucher.voucherNumber} permanently deleted.',
+                      ),
                     ),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(backgroundColor: AppColors.error, content: Text('Failed to delete voucher: $e')),
+                    SnackBar(
+                      backgroundColor: AppColors.error,
+                      content: Text('Failed to delete voucher: $e'),
+                    ),
                   );
                 }
               }
@@ -578,7 +898,10 @@ class VoucherDetailDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextButton(
-              child: const Text('Close', style: TextStyle(color: AppColors.textMuted)),
+              child: const Text(
+                'Close',
+                style: TextStyle(color: AppColors.textMuted),
+              ),
               onPressed: () => Navigator.pop(context),
             ),
             const SizedBox(width: 12),
@@ -587,25 +910,27 @@ class VoucherDetailDialog extends StatelessWidget {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primary,
                   side: const BorderSide(color: AppColors.borderStrong),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                 ),
                 icon: const Icon(Icons.preview_rounded, size: 16),
-                label: const Text('Print Preview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Print Preview',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
                 onPressed: () async {
                   final db = Provider.of<AppDatabase>(context, listen: false);
-                  final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
-                  
+                  final fy = FinancialYearService.getFinancialYear(
+                    detail.voucher.date,
+                  );
+
                   double subtotal = 0.0;
                   for (final st in detail.stockTransactions) {
-                    if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
+                    if (!st.tx.isReplacement)
+                      subtotal += (st.tx.quantity.abs() * st.tx.rate);
                   }
-                  double grandTotal = 0.0;
-                  for (final e in detail.entries) {
-                    if (e.ledgerId == detail.contactLedger.id) {
-                      grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
-                    }
-                  }
-
                   final viewModel = InvoiceViewModel(
                     voucherNumber: detail.voucher.voucherNumber,
                     voucherType: detail.voucher.voucherType,
@@ -615,22 +940,33 @@ class VoucherDetailDialog extends StatelessWidget {
                     partyAddress: detail.contactLedger.address ?? '',
                     partyTaxNumber: detail.contactLedger.taxNumber ?? '',
                     partyPhone: detail.contactLedger.phone,
-                    items: detail.stockTransactions.map((st) => InvoiceItemRow(
-                      itemName: st.itemName,
-                      quantity: st.tx.quantity.abs(),
-                      rate: st.tx.rate,
-                      amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
-                      isReplacement: st.tx.isReplacement,
-                    )).toList(),
+                    items: detail.stockTransactions
+                        .map(
+                          (st) => InvoiceItemRow(
+                            itemName: st.itemName,
+                            quantity: st.tx.quantity.abs(),
+                            rate: st.tx.rate,
+                            amount: st.tx.isReplacement
+                                ? 0.0
+                                : (st.tx.quantity.abs() * st.tx.rate),
+                            isReplacement: st.tx.isReplacement,
+                          ),
+                        )
+                        .toList(),
                     subtotal: subtotal,
                     discount: detail.voucher.discountAmount,
                     cgst: 0.0,
                     sgst: 0.0,
-                    grandTotal: grandTotal,
+                    grandTotal: detail.transactionAmount,
                     narration: detail.voucher.narration ?? '',
+                    paymentMode: detail.voucher.paymentMode,
                   );
 
-                  await PrintPreviewDialog.show(context, db: db, invoice: viewModel);
+                  await PrintPreviewDialog.show(
+                    context,
+                    db: db,
+                    invoice: viewModel,
+                  );
                 },
               ),
               const SizedBox(width: 8),
@@ -640,16 +976,23 @@ class VoucherDetailDialog extends StatelessWidget {
                   foregroundColor: AppColors.textPrimary,
                   elevation: 0,
                   side: const BorderSide(color: AppColors.borderStrong),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                 ),
                 icon: const Icon(Icons.edit_rounded, size: 16),
-                label: const Text('Alter / Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Alter / Edit',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
                 onPressed: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => InvoiceCreationPage(existingVoucher: detail.voucher),
+                      builder: (context) =>
+                          InvoiceCreationPage(existingVoucher: detail.voucher),
                     ),
                   );
                 },
@@ -659,25 +1002,27 @@ class VoucherDetailDialog extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                 ),
                 icon: const Icon(Icons.print_rounded, size: 16),
-                label: const Text('Reprint', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Reprint',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
                 onPressed: () async {
                   final db = Provider.of<AppDatabase>(context, listen: false);
-                  final fy = FinancialYearService.getFinancialYear(detail.voucher.date);
+                  final fy = FinancialYearService.getFinancialYear(
+                    detail.voucher.date,
+                  );
 
                   double subtotal = 0.0;
                   for (final st in detail.stockTransactions) {
-                    if (!st.tx.isReplacement) subtotal += (st.tx.quantity.abs() * st.tx.rate);
+                    if (!st.tx.isReplacement)
+                      subtotal += (st.tx.quantity.abs() * st.tx.rate);
                   }
-                  double grandTotal = 0.0;
-                  for (final e in detail.entries) {
-                    if (e.ledgerId == detail.contactLedger.id) {
-                      grandTotal = e.debitAmount > 0 ? e.debitAmount : e.creditAmount;
-                    }
-                  }
-
                   final viewModel = InvoiceViewModel(
                     voucherNumber: detail.voucher.voucherNumber,
                     voucherType: detail.voucher.voucherType,
@@ -687,19 +1032,26 @@ class VoucherDetailDialog extends StatelessWidget {
                     partyAddress: detail.contactLedger.address ?? '',
                     partyTaxNumber: detail.contactLedger.taxNumber ?? '',
                     partyPhone: detail.contactLedger.phone,
-                    items: detail.stockTransactions.map((st) => InvoiceItemRow(
-                      itemName: st.itemName,
-                      quantity: st.tx.quantity.abs(),
-                      rate: st.tx.rate,
-                      amount: st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate),
-                      isReplacement: st.tx.isReplacement,
-                    )).toList(),
+                    items: detail.stockTransactions
+                        .map(
+                          (st) => InvoiceItemRow(
+                            itemName: st.itemName,
+                            quantity: st.tx.quantity.abs(),
+                            rate: st.tx.rate,
+                            amount: st.tx.isReplacement
+                                ? 0.0
+                                : (st.tx.quantity.abs() * st.tx.rate),
+                            isReplacement: st.tx.isReplacement,
+                          ),
+                        )
+                        .toList(),
                     subtotal: subtotal,
                     discount: detail.voucher.discountAmount,
                     cgst: 0.0,
                     sgst: 0.0,
-                    grandTotal: grandTotal,
+                    grandTotal: detail.transactionAmount,
                     narration: detail.voucher.narration ?? '',
+                    paymentMode: detail.voucher.paymentMode,
                   );
 
                   await InvoicePrinter.printInvoice(

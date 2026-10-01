@@ -1574,6 +1574,17 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _partyLedgerIdMeta = const VerificationMeta(
+    'partyLedgerId',
+  );
+  @override
+  late final GeneratedColumn<String> partyLedgerId = GeneratedColumn<String>(
+    'party_ledger_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _financialYearMeta = const VerificationMeta(
     'financialYear',
   );
@@ -1682,6 +1693,7 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
     id,
     voucherNumber,
     voucherType,
+    partyLedgerId,
     financialYear,
     date,
     narration,
@@ -1730,6 +1742,15 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
       );
     } else if (isInserting) {
       context.missing(_voucherTypeMeta);
+    }
+    if (data.containsKey('party_ledger_id')) {
+      context.handle(
+        _partyLedgerIdMeta,
+        partyLedgerId.isAcceptableOrUnknown(
+          data['party_ledger_id']!,
+          _partyLedgerIdMeta,
+        ),
+      );
     }
     if (data.containsKey('financial_year')) {
       context.handle(
@@ -1820,6 +1841,10 @@ class $VouchersTable extends Vouchers with TableInfo<$VouchersTable, Voucher> {
         DriftSqlType.string,
         data['${effectivePrefix}voucher_type'],
       )!,
+      partyLedgerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}party_ledger_id'],
+      ),
       financialYear: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}financial_year'],
@@ -1869,6 +1894,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
   final String id;
   final String voucherNumber;
   final String voucherType;
+  final String? partyLedgerId;
   final String financialYear;
   final DateTime date;
   final String? narration;
@@ -1882,6 +1908,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     required this.id,
     required this.voucherNumber,
     required this.voucherType,
+    this.partyLedgerId,
     required this.financialYear,
     required this.date,
     this.narration,
@@ -1898,6 +1925,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     map['id'] = Variable<String>(id);
     map['voucher_number'] = Variable<String>(voucherNumber);
     map['voucher_type'] = Variable<String>(voucherType);
+    if (!nullToAbsent || partyLedgerId != null) {
+      map['party_ledger_id'] = Variable<String>(partyLedgerId);
+    }
     map['financial_year'] = Variable<String>(financialYear);
     map['date'] = Variable<DateTime>(date);
     if (!nullToAbsent || narration != null) {
@@ -1921,6 +1951,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       id: Value(id),
       voucherNumber: Value(voucherNumber),
       voucherType: Value(voucherType),
+      partyLedgerId: partyLedgerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(partyLedgerId),
       financialYear: Value(financialYear),
       date: Value(date),
       narration: narration == null && nullToAbsent
@@ -1948,6 +1981,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       id: serializer.fromJson<String>(json['id']),
       voucherNumber: serializer.fromJson<String>(json['voucherNumber']),
       voucherType: serializer.fromJson<String>(json['voucherType']),
+      partyLedgerId: serializer.fromJson<String?>(json['partyLedgerId']),
       financialYear: serializer.fromJson<String>(json['financialYear']),
       date: serializer.fromJson<DateTime>(json['date']),
       narration: serializer.fromJson<String?>(json['narration']),
@@ -1966,6 +2000,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       'id': serializer.toJson<String>(id),
       'voucherNumber': serializer.toJson<String>(voucherNumber),
       'voucherType': serializer.toJson<String>(voucherType),
+      'partyLedgerId': serializer.toJson<String?>(partyLedgerId),
       'financialYear': serializer.toJson<String>(financialYear),
       'date': serializer.toJson<DateTime>(date),
       'narration': serializer.toJson<String?>(narration),
@@ -1982,6 +2017,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     String? id,
     String? voucherNumber,
     String? voucherType,
+    Value<String?> partyLedgerId = const Value.absent(),
     String? financialYear,
     DateTime? date,
     Value<String?> narration = const Value.absent(),
@@ -1995,6 +2031,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     id: id ?? this.id,
     voucherNumber: voucherNumber ?? this.voucherNumber,
     voucherType: voucherType ?? this.voucherType,
+    partyLedgerId: partyLedgerId.present
+        ? partyLedgerId.value
+        : this.partyLedgerId,
     financialYear: financialYear ?? this.financialYear,
     date: date ?? this.date,
     narration: narration.present ? narration.value : this.narration,
@@ -2016,6 +2055,9 @@ class Voucher extends DataClass implements Insertable<Voucher> {
       voucherType: data.voucherType.present
           ? data.voucherType.value
           : this.voucherType,
+      partyLedgerId: data.partyLedgerId.present
+          ? data.partyLedgerId.value
+          : this.partyLedgerId,
       financialYear: data.financialYear.present
           ? data.financialYear.value
           : this.financialYear,
@@ -2042,6 +2084,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
           ..write('id: $id, ')
           ..write('voucherNumber: $voucherNumber, ')
           ..write('voucherType: $voucherType, ')
+          ..write('partyLedgerId: $partyLedgerId, ')
           ..write('financialYear: $financialYear, ')
           ..write('date: $date, ')
           ..write('narration: $narration, ')
@@ -2060,6 +2103,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
     id,
     voucherNumber,
     voucherType,
+    partyLedgerId,
     financialYear,
     date,
     narration,
@@ -2077,6 +2121,7 @@ class Voucher extends DataClass implements Insertable<Voucher> {
           other.id == this.id &&
           other.voucherNumber == this.voucherNumber &&
           other.voucherType == this.voucherType &&
+          other.partyLedgerId == this.partyLedgerId &&
           other.financialYear == this.financialYear &&
           other.date == this.date &&
           other.narration == this.narration &&
@@ -2092,6 +2137,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
   final Value<String> id;
   final Value<String> voucherNumber;
   final Value<String> voucherType;
+  final Value<String?> partyLedgerId;
   final Value<String> financialYear;
   final Value<DateTime> date;
   final Value<String?> narration;
@@ -2106,6 +2152,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     this.id = const Value.absent(),
     this.voucherNumber = const Value.absent(),
     this.voucherType = const Value.absent(),
+    this.partyLedgerId = const Value.absent(),
     this.financialYear = const Value.absent(),
     this.date = const Value.absent(),
     this.narration = const Value.absent(),
@@ -2121,6 +2168,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     required String id,
     required String voucherNumber,
     required String voucherType,
+    this.partyLedgerId = const Value.absent(),
     this.financialYear = const Value.absent(),
     required DateTime date,
     this.narration = const Value.absent(),
@@ -2139,6 +2187,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     Expression<String>? id,
     Expression<String>? voucherNumber,
     Expression<String>? voucherType,
+    Expression<String>? partyLedgerId,
     Expression<String>? financialYear,
     Expression<DateTime>? date,
     Expression<String>? narration,
@@ -2154,6 +2203,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
       if (id != null) 'id': id,
       if (voucherNumber != null) 'voucher_number': voucherNumber,
       if (voucherType != null) 'voucher_type': voucherType,
+      if (partyLedgerId != null) 'party_ledger_id': partyLedgerId,
       if (financialYear != null) 'financial_year': financialYear,
       if (date != null) 'date': date,
       if (narration != null) 'narration': narration,
@@ -2171,6 +2221,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     Value<String>? id,
     Value<String>? voucherNumber,
     Value<String>? voucherType,
+    Value<String?>? partyLedgerId,
     Value<String>? financialYear,
     Value<DateTime>? date,
     Value<String?>? narration,
@@ -2186,6 +2237,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
       id: id ?? this.id,
       voucherNumber: voucherNumber ?? this.voucherNumber,
       voucherType: voucherType ?? this.voucherType,
+      partyLedgerId: partyLedgerId ?? this.partyLedgerId,
       financialYear: financialYear ?? this.financialYear,
       date: date ?? this.date,
       narration: narration ?? this.narration,
@@ -2210,6 +2262,9 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
     }
     if (voucherType.present) {
       map['voucher_type'] = Variable<String>(voucherType.value);
+    }
+    if (partyLedgerId.present) {
+      map['party_ledger_id'] = Variable<String>(partyLedgerId.value);
     }
     if (financialYear.present) {
       map['financial_year'] = Variable<String>(financialYear.value);
@@ -2250,6 +2305,7 @@ class VouchersCompanion extends UpdateCompanion<Voucher> {
           ..write('id: $id, ')
           ..write('voucherNumber: $voucherNumber, ')
           ..write('voucherType: $voucherType, ')
+          ..write('partyLedgerId: $partyLedgerId, ')
           ..write('financialYear: $financialYear, ')
           ..write('date: $date, ')
           ..write('narration: $narration, ')
@@ -5701,6 +5757,7 @@ typedef $$VouchersTableCreateCompanionBuilder =
       required String id,
       required String voucherNumber,
       required String voucherType,
+      Value<String?> partyLedgerId,
       Value<String> financialYear,
       required DateTime date,
       Value<String?> narration,
@@ -5717,6 +5774,7 @@ typedef $$VouchersTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> voucherNumber,
       Value<String> voucherType,
+      Value<String?> partyLedgerId,
       Value<String> financialYear,
       Value<DateTime> date,
       Value<String?> narration,
@@ -5750,6 +5808,11 @@ class $$VouchersTableFilterComposer
 
   ColumnFilters<String> get voucherType => $composableBuilder(
     column: $table.voucherType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get partyLedgerId => $composableBuilder(
+    column: $table.partyLedgerId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5823,6 +5886,11 @@ class $$VouchersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get partyLedgerId => $composableBuilder(
+    column: $table.partyLedgerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get financialYear => $composableBuilder(
     column: $table.financialYear,
     builder: (column) => ColumnOrderings(column),
@@ -5888,6 +5956,11 @@ class $$VouchersTableAnnotationComposer
 
   GeneratedColumn<String> get voucherType => $composableBuilder(
     column: $table.voucherType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get partyLedgerId => $composableBuilder(
+    column: $table.partyLedgerId,
     builder: (column) => column,
   );
 
@@ -5958,6 +6031,7 @@ class $$VouchersTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> voucherNumber = const Value.absent(),
                 Value<String> voucherType = const Value.absent(),
+                Value<String?> partyLedgerId = const Value.absent(),
                 Value<String> financialYear = const Value.absent(),
                 Value<DateTime> date = const Value.absent(),
                 Value<String?> narration = const Value.absent(),
@@ -5972,6 +6046,7 @@ class $$VouchersTableTableManager
                 id: id,
                 voucherNumber: voucherNumber,
                 voucherType: voucherType,
+                partyLedgerId: partyLedgerId,
                 financialYear: financialYear,
                 date: date,
                 narration: narration,
@@ -5988,6 +6063,7 @@ class $$VouchersTableTableManager
                 required String id,
                 required String voucherNumber,
                 required String voucherType,
+                Value<String?> partyLedgerId = const Value.absent(),
                 Value<String> financialYear = const Value.absent(),
                 required DateTime date,
                 Value<String?> narration = const Value.absent(),
@@ -6002,6 +6078,7 @@ class $$VouchersTableTableManager
                 id: id,
                 voucherNumber: voucherNumber,
                 voucherType: voucherType,
+                partyLedgerId: partyLedgerId,
                 financialYear: financialYear,
                 date: date,
                 narration: narration,

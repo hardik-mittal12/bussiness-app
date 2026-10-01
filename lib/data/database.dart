@@ -54,6 +54,7 @@ class Vouchers extends Table {
   TextColumn get id => text()();
   TextColumn get voucherNumber => text()();
   TextColumn get voucherType => text()(); // 'Sales', 'Purchase', 'Receipt', 'Payment', 'Journal', 'Contra'
+  TextColumn get partyLedgerId => text().nullable().references(Ledgers, #id)();
   TextColumn get financialYear => text().withDefault(const Constant('2025-26'))(); // e.g. '2025-26'
   DateTimeColumn get date => dateTime()();
   TextColumn get narration => text().nullable()();
@@ -164,7 +165,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   static QueryExecutor _openConnection() => openConnection();
 
@@ -258,6 +259,30 @@ class AppDatabase extends _$AppDatabase {
             if (!await columnExists('vouchers', 'payment_mode')) {
               await m.addColumn(vouchers, vouchers.paymentMode);
             }
+          }
+          if (from < 7) {
+            if (!await columnExists('vouchers', 'party_ledger_id')) {
+              await m.addColumn(vouchers, vouchers.partyLedgerId);
+            }
+            await customStatement('''
+              UPDATE vouchers
+              SET party_ledger_id = (
+                SELECT ve.ledger_id
+                FROM voucher_entries ve
+                JOIN ledgers l ON l.id = ve.ledger_id
+                WHERE ve.voucher_id = vouchers.id
+                  AND ve.debit_amount > 0
+                  AND ve.debit_amount = ve.credit_amount
+                  AND (
+                    (vouchers.voucher_type = 'Sales' AND l.group_id = 'debtors') OR
+                    (vouchers.voucher_type = 'Purchase' AND l.group_id = 'creditors')
+                  )
+                ORDER BY ve.rowid
+                LIMIT 1
+              )
+              WHERE party_ledger_id IS NULL
+                AND voucher_type IN ('Sales', 'Purchase');
+            ''');
           }
         },
         onCreate: (m) async {

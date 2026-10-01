@@ -15,7 +15,10 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   late Future<Map<String, dynamic>> _dashboardDataFuture;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(
+    symbol: 'Rs. ',
+    decimalDigits: 2,
+  );
 
   @override
   void didChangeDependencies() {
@@ -24,7 +27,9 @@ class _DashboardPageState extends State<DashboardPage> {
     _dashboardDataFuture = _loadDashboardData(engine);
   }
 
-  Future<Map<String, dynamic>> _loadDashboardData(AccountingEngine engine) async {
+  Future<Map<String, dynamic>> _loadDashboardData(
+    AccountingEngine engine,
+  ) async {
     final bs = await engine.getBalanceSheetReport();
     final pl = await engine.getProfitLossReport();
     final stock = await engine.getStockSummary();
@@ -56,11 +61,17 @@ class _DashboardPageState extends State<DashboardPage> {
         elevation: 0,
         title: const Text(
           'Financial Overview Dashboard',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.textSecondary),
+            icon: const Icon(
+              Icons.refresh_rounded,
+              color: AppColors.textSecondary,
+            ),
             onPressed: _refresh,
           ),
           const SizedBox(width: 16),
@@ -70,7 +81,9 @@ class _DashboardPageState extends State<DashboardPage> {
         future: _dashboardDataFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+            return const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            );
           }
           if (snapshot.hasError) {
             return Center(
@@ -131,7 +144,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 24),
 
                   // Row 2: Performance metrics and quick actions
@@ -167,25 +180,55 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              _buildRowDetail('Total Sales', pl.salesValue, AppColors.success),
-                              const Divider(color: AppColors.border, height: 20),
-                              _buildRowDetail('Total Purchase', pl.purchaseValue, AppColors.warning),
-                              const Divider(color: AppColors.border, height: 20),
-                              _buildRowDetail('Direct & Indirect Expenses', pl.directExpenses + pl.indirectExpenses, AppColors.error),
-                              const Divider(color: AppColors.border, height: 20),
-                              _buildRowDetail('Gross Profit', pl.grossProfit, const Color(0xFF0D9488)),
-                              const Divider(color: AppColors.border, height: 20),
+                              _buildRowDetail(
+                                'Total Sales',
+                                pl.salesValue,
+                                AppColors.success,
+                              ),
+                              const Divider(
+                                color: AppColors.border,
+                                height: 20,
+                              ),
+                              _buildRowDetail(
+                                'Total Purchase',
+                                pl.purchaseValue,
+                                AppColors.warning,
+                              ),
+                              const Divider(
+                                color: AppColors.border,
+                                height: 20,
+                              ),
+                              _buildRowDetail(
+                                'Direct & Indirect Expenses',
+                                pl.directExpenses + pl.indirectExpenses,
+                                AppColors.error,
+                              ),
+                              const Divider(
+                                color: AppColors.border,
+                                height: 20,
+                              ),
+                              _buildRowDetail(
+                                'Gross Profit',
+                                pl.grossProfit,
+                                const Color(0xFF0D9488),
+                              ),
+                              const Divider(
+                                color: AppColors.border,
+                                height: 20,
+                              ),
                               _buildRowDetail(
                                 'Net Profit / Loss',
                                 pl.netProfit,
-                                pl.netProfit >= 0 ? AppColors.success : AppColors.error,
+                                pl.netProfit >= 0
+                                    ? AppColors.success
+                                    : AppColors.error,
                                 highlight: true,
                               ),
                             ],
                           ),
                         ),
                       ),
-                      
+
                       const SizedBox(width: 24),
 
                       // Quick Actions
@@ -225,7 +268,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                     icon: Icons.add_shopping_cart_rounded,
                                     color: const Color(0xFF2563EB),
                                     bgColor: const Color(0xFFEFF6FF),
-                                    onPressed: () => widget.onNavigate(3), // Index 3 is Sales & Purchases
+                                    onPressed: () => widget.onNavigate(
+                                      4,
+                                    ), // Index 4 is Sales & Purchases
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
@@ -233,7 +278,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                     icon: Icons.call_received_rounded,
                                     color: const Color(0xFF059669),
                                     bgColor: const Color(0xFFECFDF5),
-                                    onPressed: () => widget.onNavigate(4), // Index 4 is Receipts & Payments
+                                    onPressed: () => widget.onNavigate(
+                                      5,
+                                    ), // Index 5 is Receipts & Payments
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
@@ -241,7 +288,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     icon: Icons.add_box_rounded,
                                     color: const Color(0xFFD97706),
                                     bgColor: const Color(0xFFFFFBEB),
-                                    onPressed: () => widget.onNavigate(3),
+                                    onPressed: () => widget.onNavigate(4),
                                   ),
                                   const SizedBox(height: 10),
                                   _buildActionButton(
@@ -249,7 +296,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                     icon: Icons.account_balance_wallet_rounded,
                                     color: const Color(0xFF7C3AED),
                                     bgColor: const Color(0xFFF5F3FF),
-                                    onPressed: () => widget.onNavigate(5), // Index 5 is Financial Reports
+                                    onPressed: () => widget.onNavigate(
+                                      6,
+                                    ), // Index 6 is Financial Reports
                                   ),
                                 ],
                               ),
@@ -294,14 +343,21 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                             if (lowStock.isNotEmpty)
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: AppColors.errorBg,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   '${lowStock.length} Items Low',
-                                  style: const TextStyle(color: AppColors.error, fontSize: 11, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(
+                                    color: AppColors.error,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                           ],
@@ -312,35 +368,52 @@ class _DashboardPageState extends State<DashboardPage> {
                             padding: EdgeInsets.symmetric(vertical: 12),
                             child: Text(
                               'All stock items are at healthy levels.',
-                              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 13,
+                              ),
                             ),
                           )
                         else
                           ListView.separated(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: lowStock.length > 5 ? 5 : lowStock.length,
-                            separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 12),
+                            itemCount: lowStock.length > 5
+                                ? 5
+                                : lowStock.length,
+                            separatorBuilder: (context, index) => const Divider(
+                              color: AppColors.border,
+                              height: 12,
+                            ),
                             itemBuilder: (context, index) {
                               final item = lowStock[index];
                               return Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     item.name,
-                                    style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500),
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                   Row(
                                     children: [
                                       Text(
                                         'Qty Left: ${item.quantity.toStringAsFixed(0)}',
-                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
                                         '(${item.quantity <= 0 ? "Out of Stock" : "Reorder Soon"})',
                                         style: TextStyle(
-                                          color: item.quantity <= 0 ? AppColors.error : AppColors.warning,
+                                          color: item.quantity <= 0
+                                              ? AppColors.error
+                                              : AppColors.warning,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -420,7 +493,12 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildRowDetail(String title, double amount, Color color, {bool highlight = false}) {
+  Widget _buildRowDetail(
+    String title,
+    double amount,
+    Color color, {
+    bool highlight = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [

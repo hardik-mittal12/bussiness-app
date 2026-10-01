@@ -31,24 +31,32 @@ void main() {
       final profileService = BusinessProfileService(db);
 
       // Create a customer
-      await db.into(db.ledgers).insert(LedgersCompanion.insert(
-        id: 'cust_persist_1',
-        name: 'Persistent Customer Ltd',
-        groupId: 'debtors',
-        phone: const drift.Value('+91 9988776655'),
-        address: const drift.Value('100 Industrial Area'),
-      ));
+      await db
+          .into(db.ledgers)
+          .insert(
+            LedgersCompanion.insert(
+              id: 'cust_persist_1',
+              name: 'Persistent Customer Ltd',
+              groupId: 'debtors',
+              phone: const drift.Value('+91 9988776655'),
+              address: const drift.Value('100 Industrial Area'),
+            ),
+          );
 
       // Create a stock item
-      await db.into(db.stockItems).insert(StockItemsCompanion.insert(
-        id: 'item_persist_1',
-        name: 'Heavy Duty Cable',
-        openingQuantity: const drift.Value(50.0),
-        openingRate: const drift.Value(120.0),
-        salesRate: const drift.Value(180.0),
-        purchaseRate: const drift.Value(120.0),
-        unitOfMeasure: const drift.Value('MTR'),
-      ));
+      await db
+          .into(db.stockItems)
+          .insert(
+            StockItemsCompanion.insert(
+              id: 'item_persist_1',
+              name: 'Heavy Duty Cable',
+              openingQuantity: const drift.Value(50.0),
+              openingRate: const drift.Value(120.0),
+              salesRate: const drift.Value(180.0),
+              purchaseRate: const drift.Value(120.0),
+              unitOfMeasure: const drift.Value('MTR'),
+            ),
+          );
 
       // Post a sales invoice
       await engine.createVoucher(
@@ -131,22 +139,28 @@ void main() {
       final profileService2 = BusinessProfileService(db2);
 
       // Verify schema version is intact
-      expect(db2.schemaVersion, equals(6));
+      expect(db2.schemaVersion, equals(7));
 
-      final receipt = await (db2.select(db2.vouchers)
-        ..where((voucher) => voucher.voucherNumber.equals('RCT-2026-PERSIST-1')))
-          .getSingle();
+      final receipt =
+          await (db2.select(db2.vouchers)..where(
+                (voucher) => voucher.voucherNumber.equals('RCT-2026-PERSIST-1'),
+              ))
+              .getSingle();
       expect(receipt.paymentMode, equals('UPI'));
 
       // Verify customer exists with intact data
-      final cust = await (db2.select(db2.ledgers)..where((t) => t.id.equals('cust_persist_1'))).getSingleOrNull();
+      final cust = await (db2.select(
+        db2.ledgers,
+      )..where((t) => t.id.equals('cust_persist_1'))).getSingleOrNull();
       expect(cust, isNotNull);
       expect(cust!.name, equals('Persistent Customer Ltd'));
       expect(cust.phone, equals('+91 9988776655'));
       expect(cust.address, equals('100 Industrial Area'));
 
       // Verify stock item exists and quantity reflects previous sales
-      final stockSummary = await engine2.getStockSummaryForItem('item_persist_1');
+      final stockSummary = await engine2.getStockSummaryForItem(
+        'item_persist_1',
+      );
       expect(stockSummary.quantity, equals(30.0)); // 50 - 20 = 30
 
       // Verify customer ledger balance reflects the invoice minus receipt (3600 - 300 = 3300)
@@ -165,32 +179,68 @@ void main() {
     }
   });
 
-  test('Database correctly runs v4 -> v6 migration and preserves existing records', () async {
+  test('Database correctly runs v4 -> v7 migration and preserves existing records', () async {
     // 1. Create a simulated v4 database directly via sqlite3
     {
       final rawDb = sqlite3.open(dbFile.path);
 
       // Create v4 schema tables
-      rawDb.execute('CREATE TABLE account_groups (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, primary_group TEXT NOT NULL);');
-      rawDb.execute('CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, group_id TEXT NOT NULL, opening_balance REAL NOT NULL DEFAULT 0.0, phone TEXT, address TEXT, email TEXT, tax_number TEXT, updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);');
-      rawDb.execute('CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, sku TEXT, unit_of_measure TEXT NOT NULL DEFAULT \'PCS\', opening_quantity REAL NOT NULL DEFAULT 0.0, opening_rate REAL NOT NULL DEFAULT 0.0, purchase_rate REAL NOT NULL DEFAULT 0.0, sales_rate REAL NOT NULL DEFAULT 0.0, updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);');
-      rawDb.execute('CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, voucher_number TEXT NOT NULL, voucher_type TEXT NOT NULL, financial_year TEXT NOT NULL, date INTEGER NOT NULL, narration TEXT, reference_number TEXT, status TEXT DEFAULT \'POSTED\', updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);');
-      rawDb.execute('CREATE TABLE voucher_entries (id TEXT NOT NULL PRIMARY KEY, voucher_id TEXT NOT NULL, ledger_id TEXT NOT NULL, debit_amount REAL NOT NULL DEFAULT 0.0, credit_amount REAL NOT NULL DEFAULT 0.0);');
-      rawDb.execute('CREATE TABLE stock_transactions (id TEXT NOT NULL PRIMARY KEY, voucher_id TEXT NOT NULL, stock_item_id TEXT NOT NULL, quantity REAL NOT NULL, rate REAL NOT NULL, transaction_type TEXT NOT NULL);');
-      rawDb.execute('CREATE TABLE business_profiles (id TEXT NOT NULL PRIMARY KEY, company_name TEXT NOT NULL, address TEXT, phone TEXT, email TEXT, tax_number TEXT, bank_details TEXT, terms_and_conditions TEXT, is_active INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);');
-      rawDb.execute('CREATE TABLE sync_metadata (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);');
-      rawDb.execute('CREATE TABLE invoice_sequences (id TEXT NOT NULL PRIMARY KEY, current_sequence INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);');
-      rawDb.execute('CREATE TABLE audit_logs (id TEXT NOT NULL PRIMARY KEY, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, details TEXT, timestamp INTEGER NOT NULL);');
+      rawDb.execute(
+        'CREATE TABLE account_groups (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, primary_group TEXT NOT NULL);',
+      );
+      rawDb.execute(
+        'CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, group_id TEXT NOT NULL, opening_balance REAL NOT NULL DEFAULT 0.0, phone TEXT, address TEXT, email TEXT, tax_number TEXT, updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);',
+      );
+      rawDb.execute(
+        'CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL UNIQUE, sku TEXT, unit_of_measure TEXT NOT NULL DEFAULT \'PCS\', opening_quantity REAL NOT NULL DEFAULT 0.0, opening_rate REAL NOT NULL DEFAULT 0.0, purchase_rate REAL NOT NULL DEFAULT 0.0, sales_rate REAL NOT NULL DEFAULT 0.0, updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);',
+      );
+      rawDb.execute(
+        'CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, voucher_number TEXT NOT NULL, voucher_type TEXT NOT NULL, financial_year TEXT NOT NULL, date INTEGER NOT NULL, narration TEXT, reference_number TEXT, status TEXT DEFAULT \'POSTED\', updated_at INTEGER NOT NULL, is_synced INTEGER NOT NULL DEFAULT 0);',
+      );
+      rawDb.execute(
+        'CREATE TABLE voucher_entries (id TEXT NOT NULL PRIMARY KEY, voucher_id TEXT NOT NULL, ledger_id TEXT NOT NULL, debit_amount REAL NOT NULL DEFAULT 0.0, credit_amount REAL NOT NULL DEFAULT 0.0);',
+      );
+      rawDb.execute(
+        'CREATE TABLE stock_transactions (id TEXT NOT NULL PRIMARY KEY, voucher_id TEXT NOT NULL, stock_item_id TEXT NOT NULL, quantity REAL NOT NULL, rate REAL NOT NULL, transaction_type TEXT NOT NULL);',
+      );
+      rawDb.execute(
+        'CREATE TABLE business_profiles (id TEXT NOT NULL PRIMARY KEY, company_name TEXT NOT NULL, address TEXT, phone TEXT, email TEXT, tax_number TEXT, bank_details TEXT, terms_and_conditions TEXT, is_active INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);',
+      );
+      rawDb.execute(
+        'CREATE TABLE sync_metadata (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);',
+      );
+      rawDb.execute(
+        'CREATE TABLE invoice_sequences (id TEXT NOT NULL PRIMARY KEY, current_sequence INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);',
+      );
+      rawDb.execute(
+        'CREATE TABLE audit_logs (id TEXT NOT NULL PRIMARY KEY, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, details TEXT, timestamp INTEGER NOT NULL);',
+      );
 
       // Set user_version to 4
       rawDb.execute('PRAGMA user_version = 4;');
 
       // Insert pre-migration records
-      rawDb.execute('INSERT INTO account_groups VALUES (\'debtors\', \'Sundry Debtors\', \'Assets\');');
-      rawDb.execute('INSERT INTO account_groups VALUES (\'sales_accounts\', \'Sales Accounts\', \'Revenue\');');
-      rawDb.execute('INSERT INTO ledgers VALUES (\'cust_v4\', \'Old Customer v4\', \'debtors\', 0.0, \'9876543210\', \'Old Address\', \'old@v4.com\', \'27ABCDE1234F1Z5\', 1700000000, 0);');
-      rawDb.execute('INSERT INTO stock_items VALUES (\'item_v4\', \'Old Product v4\', \'SKU-001\', \'PCS\', 100.0, 10.0, 10.0, 15.0, 1700000000, 0);');
-      rawDb.execute('INSERT INTO business_profiles VALUES (\'default\', \'Existing Business v4\', \'v4 Street\', \'123456\', \'biz@v4.com\', \'TAX-v4\', \'Bank-v4\', \'Terms-v4\', 1, 1700000000);');
+      rawDb.execute(
+        'INSERT INTO account_groups VALUES (\'debtors\', \'Sundry Debtors\', \'Assets\');',
+      );
+      rawDb.execute(
+        'INSERT INTO account_groups VALUES (\'sales_accounts\', \'Sales Accounts\', \'Revenue\');',
+      );
+      rawDb.execute(
+        'INSERT INTO ledgers VALUES (\'cust_v4\', \'Old Customer v4\', \'debtors\', 0.0, \'9876543210\', \'Old Address\', \'old@v4.com\', \'27ABCDE1234F1Z5\', 1700000000, 0);',
+      );
+      rawDb.execute(
+        'INSERT INTO stock_items VALUES (\'item_v4\', \'Old Product v4\', \'SKU-001\', \'PCS\', 100.0, 10.0, 10.0, 15.0, 1700000000, 0);',
+      );
+      rawDb.execute(
+        'INSERT INTO business_profiles VALUES (\'default\', \'Existing Business v4\', \'v4 Street\', \'123456\', \'biz@v4.com\', \'TAX-v4\', \'Bank-v4\', \'Terms-v4\', 1, 1700000000);',
+      );
+      rawDb.execute(
+        'INSERT INTO vouchers (id, voucher_number, voucher_type, financial_year, date, narration, reference_number, status, updated_at, is_synced) VALUES (\'legacy_cash_sale\', \'INV-2025-26-0001\', \'Sales\', \'2025-26\', 1760000000, \'Legacy cash sale\', \'LEGACY-REF\', \'POSTED\', 1760000000, 0);',
+      );
+      rawDb.execute(
+        'INSERT INTO voucher_entries VALUES (\'legacy_party_reference\', \'legacy_cash_sale\', \'cust_v4\', 125.0, 125.0);',
+      );
 
       rawDb.dispose();
     }
@@ -199,23 +249,40 @@ void main() {
     {
       final appDb = AppDatabase(NativeDatabase(dbFile));
 
-      // Verify migration completed to schemaVersion 6
-      expect(appDb.schemaVersion, equals(6));
+      // Verify migration completed to schemaVersion 7
+      expect(appDb.schemaVersion, equals(7));
 
       // Verify v4 customer survived and new v5 column is_deleted defaulted to false
-      final cust = await (appDb.select(appDb.ledgers)..where((t) => t.id.equals('cust_v4'))).getSingle();
+      final cust = await (appDb.select(
+        appDb.ledgers,
+      )..where((t) => t.id.equals('cust_v4'))).getSingle();
       expect(cust.name, equals('Old Customer v4'));
       expect(cust.isDeleted, isFalse);
 
       // Verify v4 stock item survived
-      final item = await (appDb.select(appDb.stockItems)..where((t) => t.id.equals('item_v4'))).getSingle();
+      final item = await (appDb.select(
+        appDb.stockItems,
+      )..where((t) => t.id.equals('item_v4'))).getSingle();
       expect(item.name, equals('Old Product v4'));
       expect(item.openingQuantity, equals(100.0));
 
       // Verify business profile survived and new v5 logo_path column exists and is null
-      final profile = await (appDb.select(appDb.businessProfiles)..where((t) => t.id.equals('default'))).getSingle();
+      final profile = await (appDb.select(
+        appDb.businessProfiles,
+      )..where((t) => t.id.equals('default'))).getSingle();
       expect(profile.companyName, equals('Existing Business v4'));
       expect(profile.logoPath, isNull);
+
+      final legacyVoucher = await (appDb.select(
+        appDb.vouchers,
+      )..where((voucher) => voucher.id.equals('legacy_cash_sale'))).getSingle();
+      expect(legacyVoucher.partyLedgerId, 'cust_v4');
+      final legacyEntries = await (appDb.select(
+        appDb.voucherEntries,
+      )..where((entry) => entry.voucherId.equals('legacy_cash_sale'))).get();
+      expect(legacyEntries, hasLength(1));
+      expect(legacyEntries.single.debitAmount, 125.0);
+      expect(legacyEntries.single.creditAmount, 125.0);
 
       await appDb.close();
     }

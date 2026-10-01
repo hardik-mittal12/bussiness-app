@@ -89,7 +89,7 @@ class BalanceSheetReport {
   final double netProfitSurplus;
   final double totalLiabilities;
   final double sundryCreditors;
-  
+
   final double closingStock;
   final double cashBalance;
   final double bankBalance;
@@ -116,6 +116,13 @@ class DayBookRow {
   final DateTime date;
   final String narration;
   final double totalAmount;
+  final double totalDebit;
+  final double totalCredit;
+  final String? partyLedgerId;
+  final String? partyName;
+  final String? referenceNumber;
+  final String? paymentMode;
+  final double discountAmount;
 
   DayBookRow({
     required this.voucherId,
@@ -124,6 +131,13 @@ class DayBookRow {
     required this.date,
     required this.narration,
     required this.totalAmount,
+    required this.totalDebit,
+    required this.totalCredit,
+    required this.partyLedgerId,
+    required this.partyName,
+    required this.referenceNumber,
+    required this.paymentMode,
+    required this.discountAmount,
   });
 }
 
@@ -145,12 +159,24 @@ class AccountingEngine {
   bool get isSubmitting => _isSubmitting;
 
   // 1. Transactional Sequence Reservation inside SQLite Transaction
-  Future<String> reserveNextInvoiceNumberInTx(String voucherType, DateTime date) async {
+  Future<String> reserveNextInvoiceNumberInTx(
+    String voucherType,
+    DateTime date,
+  ) async {
     final financialYear = FinancialYearService.getFinancialYear(date);
-    final seqId = FinancialYearService.getSequenceId(financialYear, voucherType);
-    final prefix = voucherType == 'Sales' ? 'INV' : (voucherType == 'Purchase' ? 'PUR' : voucherType.substring(0, 3).toUpperCase());
+    final seqId = FinancialYearService.getSequenceId(
+      financialYear,
+      voucherType,
+    );
+    final prefix = voucherType == 'Sales'
+        ? 'INV'
+        : (voucherType == 'Purchase'
+              ? 'PUR'
+              : voucherType.substring(0, 3).toUpperCase());
 
-    final existingSeq = await (db.select(db.invoiceSequences)..where((t) => t.id.equals(seqId))).getSingleOrNull();
+    final existingSeq = await (db.select(
+      db.invoiceSequences,
+    )..where((t) => t.id.equals(seqId))).getSingleOrNull();
 
     int currentNext = 1;
     if (existingSeq != null) {
@@ -159,12 +185,16 @@ class AccountingEngine {
 
     // Advance sequence until a non-conflicting number is found (protects against imports & concurrency)
     while (true) {
-      final candidateNo = '$prefix-$financialYear-${currentNext.toString().padLeft(4, '0')}';
-      final existingVoucher = await (db.select(db.vouchers)
-        ..where((t) => t.financialYear.equals(financialYear) &
-                       t.voucherType.equals(voucherType) &
-                       t.voucherNumber.equals(candidateNo)))
-        .getSingleOrNull();
+      final candidateNo =
+          '$prefix-$financialYear-${currentNext.toString().padLeft(4, '0')}';
+      final existingVoucher =
+          await (db.select(db.vouchers)..where(
+                (t) =>
+                    t.financialYear.equals(financialYear) &
+                    t.voucherType.equals(voucherType) &
+                    t.voucherNumber.equals(candidateNo),
+              ))
+              .getSingleOrNull();
       if (existingVoucher == null) {
         break;
       }
@@ -172,18 +202,19 @@ class AccountingEngine {
     }
 
     if (existingSeq != null) {
-      await (db.update(db.invoiceSequences)..where((t) => t.id.equals(seqId))).write(
-        InvoiceSequencesCompanion(nextNumber: Value(currentNext + 1)),
-      );
+      await (db.update(db.invoiceSequences)..where((t) => t.id.equals(seqId)))
+          .write(InvoiceSequencesCompanion(nextNumber: Value(currentNext + 1)));
     } else {
-      await db.into(db.invoiceSequences).insert(
-        InvoiceSequencesCompanion.insert(
-          id: seqId,
-          financialYear: financialYear,
-          voucherType: voucherType,
-          nextNumber: Value(currentNext + 1),
-        ),
-      );
+      await db
+          .into(db.invoiceSequences)
+          .insert(
+            InvoiceSequencesCompanion.insert(
+              id: seqId,
+              financialYear: financialYear,
+              voucherType: voucherType,
+              nextNumber: Value(currentNext + 1),
+            ),
+          );
     }
 
     return '$prefix-$financialYear-${currentNext.toString().padLeft(4, '0')}';
@@ -192,8 +223,10 @@ class AccountingEngine {
   // 2. Create or Update a Double-Entry Voucher (100% Atomic Transaction)
   Future<String> createVoucher({
     String? voucherNumber,
-    required String voucherType, // 'Sales', 'Purchase', 'Receipt', 'Payment', 'Journal', 'Contra'
+    required String
+    voucherType, // 'Sales', 'Purchase', 'Receipt', 'Payment', 'Journal', 'Contra'
     required DateTime date,
+    String? partyLedgerId,
     String? narration,
     String? referenceNumber,
     String? paymentMode,
@@ -204,7 +237,9 @@ class AccountingEngine {
     bool allowNegativeStock = false,
   }) async {
     if (_isSubmitting) {
-      throw Exception('Voucher submission is already in progress. Please wait.');
+      throw Exception(
+        'Voucher submission is already in progress. Please wait.',
+      );
     }
     _isSubmitting = true;
 
@@ -233,51 +268,69 @@ class AccountingEngine {
 
         // If new voucher and no voucherNumber provided, reserve transactionally
         if (existingVoucherId == null && finalVoucherNumber.isEmpty) {
-          finalVoucherNumber = await reserveNextInvoiceNumberInTx(voucherType, date);
+          finalVoucherNumber = await reserveNextInvoiceNumberInTx(
+            voucherType,
+            date,
+          );
         }
 
         if (existingVoucherId != null) {
           // Wipe old splits and stock transactions first so stock check reflects current state
-          await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(existingVoucherId))).go();
-          await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(existingVoucherId))).go();
+          await (db.delete(
+            db.voucherEntries,
+          )..where((t) => t.voucherId.equals(existingVoucherId))).go();
+          await (db.delete(
+            db.stockTransactions,
+          )..where((t) => t.voucherId.equals(existingVoucherId))).go();
 
           // Update existing voucher
-          await (db.update(db.vouchers)..where((t) => t.id.equals(existingVoucherId))).write(
-            VouchersCompanion(
-              voucherNumber: Value(finalVoucherNumber),
-              voucherType: Value(voucherType),
-              financialYear: Value(financialYear),
-              date: Value(date),
-              narration: Value(narration),
-              referenceNumber: Value(referenceNumber),
-              paymentMode: Value(paymentMode),
-              discountAmount: Value(discountAmount ?? 0.0),
-              updatedAt: Value(DateTime.now()),
-              isSynced: const Value(false),
-            ),
+          final voucherUpdate = VouchersCompanion(
+            voucherNumber: Value(finalVoucherNumber),
+            voucherType: Value(voucherType),
+            financialYear: Value(financialYear),
+            date: Value(date),
+            narration: Value(narration),
+            referenceNumber: Value(referenceNumber),
+            paymentMode: Value(paymentMode),
+            discountAmount: Value(discountAmount ?? 0.0),
+            updatedAt: Value(DateTime.now()),
+            isSynced: const Value(false),
           );
+          final updateWithParty = partyLedgerId == null
+              ? voucherUpdate
+              : voucherUpdate.copyWith(partyLedgerId: Value(partyLedgerId));
+          await (db.update(db.vouchers)
+                ..where((t) => t.id.equals(existingVoucherId)))
+              .write(updateWithParty);
         } else {
           // Insert new voucher header
-          await db.into(db.vouchers).insert(VouchersCompanion.insert(
-                id: voucherId,
-                voucherNumber: finalVoucherNumber,
-                voucherType: voucherType,
-                financialYear: Value(financialYear),
-                date: date,
-                narration: Value(narration),
-                referenceNumber: Value(referenceNumber),
-                paymentMode: Value(paymentMode),
-                discountAmount: Value(discountAmount ?? 0.0),
-                status: const Value('POSTED'),
-                updatedAt: Value(DateTime.now()),
-                isSynced: const Value(false),
-              ));
+          await db
+              .into(db.vouchers)
+              .insert(
+                VouchersCompanion.insert(
+                  id: voucherId,
+                  voucherNumber: finalVoucherNumber,
+                  voucherType: voucherType,
+                  partyLedgerId: Value(partyLedgerId),
+                  financialYear: Value(financialYear),
+                  date: date,
+                  narration: Value(narration),
+                  referenceNumber: Value(referenceNumber),
+                  paymentMode: Value(paymentMode),
+                  discountAmount: Value(discountAmount ?? 0.0),
+                  status: const Value('POSTED'),
+                  updatedAt: Value(DateTime.now()),
+                  isSynced: const Value(false),
+                ),
+              );
         }
 
         // Stock Level Validation inside Transaction (Atomic)
         if (stockTransactions != null && !allowNegativeStock) {
           for (final st in stockTransactions) {
-            final type = st.transactionType.present ? st.transactionType.value : 'OUT';
+            final type = st.transactionType.present
+                ? st.transactionType.value
+                : 'OUT';
             if (type == 'OUT') {
               final itemId = st.stockItemId.present ? st.stockItemId.value : '';
               final reqQty = st.quantity.present ? st.quantity.value : 0.0;
@@ -323,7 +376,9 @@ class AccountingEngine {
   // 3. Cancel Voucher (Preserves accounting history, stock safely restored)
   Future<void> cancelVoucher(String voucherId) async {
     await db.transaction(() async {
-      await (db.update(db.vouchers)..where((t) => t.id.equals(voucherId))).write(
+      await (db.update(
+        db.vouchers,
+      )..where((t) => t.id.equals(voucherId))).write(
         VouchersCompanion(
           status: const Value('CANCELLED'),
           updatedAt: Value(DateTime.now()),
@@ -335,13 +390,21 @@ class AccountingEngine {
   // 3b. Delete Voucher (Permanently wipes voucher, entries, and stock)
   Future<void> deleteVoucher(String voucherIdOrNumber) async {
     await db.transaction(() async {
-      final v = await (db.select(db.vouchers)
-            ..where((t) => t.id.equals(voucherIdOrNumber) | t.voucherNumber.equals(voucherIdOrNumber)))
-          .getSingleOrNull();
+      final v =
+          await (db.select(db.vouchers)..where(
+                (t) =>
+                    t.id.equals(voucherIdOrNumber) |
+                    t.voucherNumber.equals(voucherIdOrNumber),
+              ))
+              .getSingleOrNull();
       if (v == null) return;
       final vid = v.id;
-      await (db.delete(db.stockTransactions)..where((t) => t.voucherId.equals(vid))).go();
-      await (db.delete(db.voucherEntries)..where((t) => t.voucherId.equals(vid))).go();
+      await (db.delete(
+        db.stockTransactions,
+      )..where((t) => t.voucherId.equals(vid))).go();
+      await (db.delete(
+        db.voucherEntries,
+      )..where((t) => t.voucherId.equals(vid))).go();
       await (db.delete(db.vouchers)..where((t) => t.id.equals(vid))).go();
     });
   }
@@ -354,7 +417,9 @@ class AccountingEngine {
 
   // Customer / Ledger deletion with transaction preservation
   Future<bool> hasCustomerTransactions(String ledgerId) async {
-    final count = await (db.select(db.voucherEntries)..where((t) => t.ledgerId.equals(ledgerId))).get();
+    final count = await (db.select(
+      db.voucherEntries,
+    )..where((t) => t.ledgerId.equals(ledgerId))).get();
     return count.isNotEmpty;
   }
 
@@ -363,9 +428,8 @@ class AccountingEngine {
       final hasTx = await hasCustomerTransactions(ledgerId);
       if (hasTx) {
         // Soft-delete / deactivate customer to safely preserve transaction history
-        await (db.update(db.ledgers)..where((t) => t.id.equals(ledgerId))).write(
-          const LedgersCompanion(isDeleted: Value(true)),
-        );
+        await (db.update(db.ledgers)..where((t) => t.id.equals(ledgerId)))
+            .write(const LedgersCompanion(isDeleted: Value(true)));
         return false; // Soft-deleted / deactivated
       } else {
         // Safe to hard-delete
@@ -386,8 +450,17 @@ class AccountingEngine {
 
       if (!keepMasters) {
         await db.delete(db.stockItems).go();
-        const standardLedgerIds = {'cash', 'profit_loss', 'sales', 'purchase', 'cgst', 'sgst'};
-        await (db.delete(db.ledgers)..where((t) => t.id.isNotIn(standardLedgerIds))).go();
+        const standardLedgerIds = {
+          'cash',
+          'profit_loss',
+          'sales',
+          'purchase',
+          'cgst',
+          'sgst',
+        };
+        await (db.delete(
+          db.ledgers,
+        )..where((t) => t.id.isNotIn(standardLedgerIds))).go();
       }
       // Business profiles and syncMetadata remain 100% intact!
     });
@@ -395,17 +468,19 @@ class AccountingEngine {
 
   // 4. Compute Ledger Balance via direct SQL aggregation
   Future<double> getLedgerBalance(String ledgerId) async {
-    final res = await db.customSelect(
-      'SELECT l.opening_balance + '
-      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
-      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
-      'FROM ledgers l '
-      'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
-      'WHERE l.id = ? '
-      'GROUP BY l.id;',
-      variables: [Variable.withString(ledgerId)],
-    ).getSingleOrNull();
+    final res = await db
+        .customSelect(
+          'SELECT l.opening_balance + '
+          'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
+          'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
+          'FROM ledgers l '
+          'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
+          'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
+          'WHERE l.id = ? '
+          'GROUP BY l.id;',
+          variables: [Variable.withString(ledgerId)],
+        )
+        .getSingleOrNull();
 
     if (res == null) return 0.0;
     return (res.data['net_balance'] as num).toDouble();
@@ -413,17 +488,24 @@ class AccountingEngine {
 
   // 5. Get Ledger Statement
   Future<List<LedgerStatementRow>> getLedgerStatement(String ledgerId) async {
-    final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(ledgerId))).getSingle();
+    final ledger = await (db.select(
+      db.ledgers,
+    )..where((t) => t.id.equals(ledgerId))).getSingle();
 
-    final query = db.select(db.voucherEntries).join([
-      innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.voucherEntries.voucherId)),
-    ])..where(
-      db.voucherEntries.ledgerId.equals(ledgerId) &
-      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
-    );
-    
+    final query =
+        db.select(db.voucherEntries).join([
+          innerJoin(
+            db.vouchers,
+            db.vouchers.id.equalsExp(db.voucherEntries.voucherId),
+          ),
+        ])..where(
+          db.voucherEntries.ledgerId.equals(ledgerId) &
+              (db.vouchers.status.isNull() |
+                  db.vouchers.status.equals('POSTED')),
+        );
+
     query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
-    
+
     final results = await query.get();
 
     double currentBalance = ledger.openingBalance;
@@ -435,16 +517,18 @@ class AccountingEngine {
 
       currentBalance += entry.debitAmount - entry.creditAmount;
 
-      statement.add(LedgerStatementRow(
-        voucherId: voucher.id,
-        date: voucher.date,
-        voucherNo: voucher.voucherNumber,
-        voucherType: voucher.voucherType,
-        narration: voucher.narration ?? '',
-        debit: entry.debitAmount,
-        credit: entry.creditAmount,
-        runningBalance: currentBalance,
-      ));
+      statement.add(
+        LedgerStatementRow(
+          voucherId: voucher.id,
+          date: voucher.date,
+          voucherNo: voucher.voucherNumber,
+          voucherType: voucher.voucherType,
+          narration: voucher.narration ?? '',
+          debit: entry.debitAmount,
+          credit: entry.creditAmount,
+          runningBalance: currentBalance,
+        ),
+      );
     }
 
     return statement;
@@ -452,13 +536,20 @@ class AccountingEngine {
 
   // 6. Calculate Stock Level for single item
   Future<StockStatus> getStockSummaryForItem(String stockItemId) async {
-    final item = await (db.select(db.stockItems)..where((t) => t.id.equals(stockItemId))).getSingle();
-    final query = db.select(db.stockTransactions).join([
-      innerJoin(db.vouchers, db.vouchers.id.equalsExp(db.stockTransactions.voucherId)),
-    ])..where(
-      db.stockTransactions.stockItemId.equals(stockItemId) &
-      (db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'))
-    );
+    final item = await (db.select(
+      db.stockItems,
+    )..where((t) => t.id.equals(stockItemId))).getSingle();
+    final query =
+        db.select(db.stockTransactions).join([
+          innerJoin(
+            db.vouchers,
+            db.vouchers.id.equalsExp(db.stockTransactions.voucherId),
+          ),
+        ])..where(
+          db.stockTransactions.stockItemId.equals(stockItemId) &
+              (db.vouchers.status.isNull() |
+                  db.vouchers.status.equals('POSTED')),
+        );
     query.orderBy([OrderingTerm.asc(db.vouchers.date)]);
     final txs = await query.get();
 
@@ -502,25 +593,29 @@ class AccountingEngine {
       summary.add(status);
     }
 
-    summary.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    summary.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     return summary;
   }
 
   // 8. Generate Trial Balance using direct SQL aggregation
   Future<List<TrialBalanceRow>> getTrialBalance() async {
-    final rows = await db.customSelect(
-      'SELECT l.id AS ledger_id, l.name AS ledger_name, g.name AS group_name, '
-      'l.opening_balance + '
-      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
-      'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
-      'FROM ledgers l '
-      'JOIN account_groups g ON l.group_id = g.id '
-      'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
-      'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
-      'GROUP BY l.id, l.name, g.name '
-      'HAVING net_balance != 0.0 '
-      'ORDER BY LOWER(l.name) ASC;'
-    ).get();
+    final rows = await db
+        .customSelect(
+          'SELECT l.id AS ledger_id, l.name AS ledger_name, g.name AS group_name, '
+          'l.opening_balance + '
+          'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.debit_amount ELSE 0.0 END), 0.0) - '
+          'COALESCE(SUM(CASE WHEN v.id IS NOT NULL THEN ve.credit_amount ELSE 0.0 END), 0.0) AS net_balance '
+          'FROM ledgers l '
+          'JOIN account_groups g ON l.group_id = g.id '
+          'LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id '
+          'LEFT JOIN vouchers v ON ve.voucher_id = v.id AND (v.status IS NULL OR v.status = \'POSTED\') '
+          'GROUP BY l.id, l.name, g.name '
+          'HAVING net_balance != 0.0 '
+          'ORDER BY LOWER(l.name) ASC;',
+        )
+        .get();
 
     final result = rows.map((r) {
       final netBal = (r.data['net_balance'] as num).toDouble();
@@ -533,7 +628,10 @@ class AccountingEngine {
       );
     }).toList();
 
-    result.sort((a, b) => a.ledgerName.toLowerCase().compareTo(b.ledgerName.toLowerCase()));
+    result.sort(
+      (a, b) =>
+          a.ledgerName.toLowerCase().compareTo(b.ledgerName.toLowerCase()),
+    );
     return result;
   }
 
@@ -564,57 +662,91 @@ class AccountingEngine {
     vars.add(Variable.withInt(limit));
     vars.add(Variable.withInt(offset));
 
-    final queryStr = '''
+    final queryStr =
+        '''
       WITH paged_vouchers AS (
-        SELECT v.id, v.voucher_number, v.voucher_type, v.date, v.narration
+        SELECT v.id, v.voucher_number, v.voucher_type, v.date, v.narration,
+               v.party_ledger_id, v.reference_number, v.payment_mode, v.discount_amount
         FROM vouchers v
         $whereClause
-        ORDER BY v.date DESC, v.voucher_number DESC
+        ORDER BY v.date DESC, v.voucher_number DESC, v.id DESC
         LIMIT ? OFFSET ?
       )
       SELECT pv.id AS voucher_id, pv.voucher_number, pv.voucher_type, pv.date, pv.narration,
-             COALESCE(SUM(ve.debit_amount), 0.0) AS total_amount
+             pv.party_ledger_id, pv.reference_number, pv.payment_mode, pv.discount_amount,
+             party.name AS party_name,
+             COALESCE(SUM(CASE
+               WHEN ve.ledger_id = pv.party_ledger_id
+                 AND ve.debit_amount = ve.credit_amount THEN 0.0
+               ELSE ve.debit_amount
+             END), 0.0) AS total_debit,
+             COALESCE(SUM(CASE
+               WHEN ve.ledger_id = pv.party_ledger_id
+                 AND ve.debit_amount = ve.credit_amount THEN 0.0
+               ELSE ve.credit_amount
+             END), 0.0) AS total_credit
       FROM paged_vouchers pv
       LEFT JOIN voucher_entries ve ON ve.voucher_id = pv.id
-      GROUP BY pv.id, pv.voucher_number, pv.voucher_type, pv.date, pv.narration
-      ORDER BY pv.date DESC, pv.voucher_number DESC;
+      LEFT JOIN ledgers party ON party.id = pv.party_ledger_id
+      GROUP BY pv.id, pv.voucher_number, pv.voucher_type, pv.date, pv.narration,
+               pv.party_ledger_id, pv.reference_number, pv.payment_mode, pv.discount_amount, party.name
+      ORDER BY pv.date DESC, pv.voucher_number DESC, pv.id DESC;
     ''';
 
     final rows = await db.customSelect(queryStr, variables: vars).get();
-    return rows.map((r) => DayBookRow(
-      voucherId: r.data['voucher_id'] as String,
-      voucherNumber: r.data['voucher_number'] as String,
-      voucherType: r.data['voucher_type'] as String,
-      date: DateTime.parse(r.data['date'].toString()),
-      narration: r.data['narration'] as String? ?? '',
-      totalAmount: (r.data['total_amount'] as num).toDouble(),
-    )).toList();
+    return rows
+        .map(
+          (r) => DayBookRow(
+            voucherId: r.data['voucher_id'] as String,
+            voucherNumber: r.data['voucher_number'] as String,
+            voucherType: r.data['voucher_type'] as String,
+            date: DateTime.parse(r.data['date'].toString()),
+            narration: r.data['narration'] as String? ?? '',
+            totalAmount: (r.data['total_debit'] as num).toDouble(),
+            totalDebit: (r.data['total_debit'] as num).toDouble(),
+            totalCredit: (r.data['total_credit'] as num).toDouble(),
+            partyLedgerId: r.data['party_ledger_id'] as String?,
+            partyName: r.data['party_name'] as String?,
+            referenceNumber: r.data['reference_number'] as String?,
+            paymentMode: r.data['payment_mode'] as String?,
+            discountAmount: (r.data['discount_amount'] as num).toDouble(),
+          ),
+        )
+        .toList();
   }
 
   // 10. Generate Profit & Loss Report
   Future<ProfitLossReport> getProfitLossReport() async {
-    final salesLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('sales_accounts'))).get();
+    final salesLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('sales_accounts'))).get();
     double salesVal = 0.0;
     for (final l in salesLedgers) {
       final bal = await getLedgerBalance(l.id);
       if (bal < 0) salesVal += bal.abs();
     }
 
-    final purchaseLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('purchase_accounts'))).get();
+    final purchaseLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('purchase_accounts'))).get();
     double purchaseVal = 0.0;
     for (final l in purchaseLedgers) {
       final bal = await getLedgerBalance(l.id);
       if (bal > 0) purchaseVal += bal;
     }
 
-    final directExpLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('direct_expenses'))).get();
+    final directExpLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('direct_expenses'))).get();
     double directExp = 0.0;
     for (final l in directExpLedgers) {
       final bal = await getLedgerBalance(l.id);
       if (bal > 0) directExp += bal;
     }
 
-    final indirectExpLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('indirect_expenses'))).get();
+    final indirectExpLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('indirect_expenses'))).get();
     double indirectExp = 0.0;
     for (final l in indirectExpLedgers) {
       final bal = await getLedgerBalance(l.id);
@@ -651,7 +783,9 @@ class AccountingEngine {
 
   // 11. Generate Balance Sheet Report
   Future<BalanceSheetReport> getBalanceSheetReport() async {
-    final capitalLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('equity'))).get();
+    final capitalLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('equity'))).get();
     double capitalBal = 0.0;
     for (final l in capitalLedgers) {
       final bal = await getLedgerBalance(l.id);
@@ -660,14 +794,18 @@ class AccountingEngine {
       }
     }
 
-    final creditorLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('creditors'))).get();
+    final creditorLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('creditors'))).get();
     double creditorsBal = 0.0;
     for (final l in creditorLedgers) {
       final bal = await getLedgerBalance(l.id);
       if (bal < 0) creditorsBal += bal.abs();
     }
 
-    final taxLedgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('duties_taxes'))).get();
+    final taxLedgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('duties_taxes'))).get();
     double taxesBal = 0.0;
     for (final l in taxLedgers) {
       final bal = await getLedgerBalance(l.id);
@@ -678,21 +816,27 @@ class AccountingEngine {
     final plReport = await getProfitLossReport();
     final netProfitSurplus = plReport.netProfit;
 
-    final cashLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('cash_in_hand'))).get();
+    final cashLedgersList = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('cash_in_hand'))).get();
     double cashBal = 0.0;
     for (final l in cashLedgersList) {
       final bal = await getLedgerBalance(l.id);
       if (bal > 0) cashBal += bal;
     }
 
-    final bankLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('bank_accounts'))).get();
+    final bankLedgersList = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('bank_accounts'))).get();
     double bankBal = 0.0;
     for (final l in bankLedgersList) {
       final bal = await getLedgerBalance(l.id);
       if (bal > 0) bankBal += bal;
     }
 
-    final debtorLedgersList = await (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors'))).get();
+    final debtorLedgersList = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('debtors'))).get();
     double debtorsBal = 0.0;
     for (final l in debtorLedgersList) {
       final bal = await getLedgerBalance(l.id);
@@ -717,43 +861,68 @@ class AccountingEngine {
 
   // 12. Fetch complete details for a specific voucher
   Future<VoucherDetail?> getVoucherDetail(String voucherId) async {
-    final voucher = await (db.select(db.vouchers)..where((t) => t.id.equals(voucherId))).getSingleOrNull();
+    final voucher = await (db.select(
+      db.vouchers,
+    )..where((t) => t.id.equals(voucherId))).getSingleOrNull();
     if (voucher == null) return null;
 
-    final entries = await (db.select(db.voucherEntries)..where((t) => t.voucherId.equals(voucherId))).get();
-    
+    final entries = await (db.select(
+      db.voucherEntries,
+    )..where((t) => t.voucherId.equals(voucherId))).get();
+
     Ledger? contactLedger;
-    for (final entry in entries) {
-      final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(entry.ledgerId))).getSingleOrNull();
-      if (ledger != null && (ledger.groupId == 'debtors' || ledger.groupId == 'creditors')) {
-        contactLedger = ledger;
-        break;
+    if (voucher.partyLedgerId != null) {
+      contactLedger = await (db.select(
+        db.ledgers,
+      )..where((t) => t.id.equals(voucher.partyLedgerId!))).getSingleOrNull();
+    }
+    if (contactLedger == null) {
+      for (final entry in entries) {
+        final ledger = await (db.select(
+          db.ledgers,
+        )..where((t) => t.id.equals(entry.ledgerId))).getSingleOrNull();
+        if (ledger != null &&
+            (ledger.groupId == 'debtors' || ledger.groupId == 'creditors')) {
+          contactLedger = ledger;
+          break;
+        }
       }
     }
-    
+
     if (contactLedger == null && entries.isNotEmpty) {
-      contactLedger = await (db.select(db.ledgers)..where((t) => t.id.equals(entries.first.ledgerId))).getSingleOrNull();
+      contactLedger = await (db.select(
+        db.ledgers,
+      )..where((t) => t.id.equals(entries.first.ledgerId))).getSingleOrNull();
     }
 
-    final finalContactLedger = contactLedger ?? Ledger(
-      id: 'unknown',
-      name: 'Unknown Account',
-      groupId: 'debtors',
-      openingBalance: 0.0,
-      updatedAt: DateTime.now(),
-      isSynced: false,
-      isDeleted: false,
-    );
+    final finalContactLedger =
+        contactLedger ??
+        Ledger(
+          id: 'unknown',
+          name: 'Unknown Account',
+          groupId: 'debtors',
+          openingBalance: 0.0,
+          updatedAt: DateTime.now(),
+          isSynced: false,
+          isDeleted: false,
+        );
 
     final query = db.select(db.stockTransactions).join([
-      innerJoin(db.stockItems, db.stockItems.id.equalsExp(db.stockTransactions.stockItemId)),
+      innerJoin(
+        db.stockItems,
+        db.stockItems.id.equalsExp(db.stockTransactions.stockItemId),
+      ),
     ])..where(db.stockTransactions.voucherId.equals(voucherId));
-    
+
     final results = await query.get();
     final stockTransactions = results.map((row) {
       final tx = row.readTable(db.stockTransactions);
       final item = row.readTable(db.stockItems);
-      return StockTransactionWithItem(tx: tx, itemName: item.name, sku: item.sku);
+      return StockTransactionWithItem(
+        tx: tx,
+        itemName: item.name,
+        sku: item.sku,
+      );
     }).toList();
 
     return VoucherDetail(
@@ -789,4 +958,11 @@ class VoucherDetail {
     required this.entries,
     required this.stockTransactions,
   });
+
+  double get transactionAmount => entries.fold(
+    0.0,
+    (total, entry) => entry.debitAmount == entry.creditAmount
+        ? total
+        : total + entry.debitAmount,
+  );
 }

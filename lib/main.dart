@@ -22,7 +22,7 @@ import 'ui/security_lock_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   final database = AppDatabase();
   final engine = AccountingEngine(database);
   final auditLog = AuditLogService(database);
@@ -40,7 +40,9 @@ void main() async {
         Provider<AuditLogService>.value(value: auditLog),
         Provider<BackupService>.value(value: backupService),
         Provider<DatabaseDiagnosticService>.value(value: diagnosticService),
-        ChangeNotifierProvider<BusinessProfileService>.value(value: profileService),
+        ChangeNotifierProvider<BusinessProfileService>.value(
+          value: profileService,
+        ),
         Provider<PdfExportService>.value(value: pdfService),
         Provider<DataExchangeService>.value(value: exchangeService),
       ],
@@ -82,30 +84,33 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
   @override
   Widget build(BuildContext context) {
     Widget activePage;
-    
+
     switch (_currentIndex) {
       case 0:
         activePage = DashboardPage(onNavigate: _onNavigate);
         break;
       case 1:
-        activePage = const LedgerListPage();
-        break;
-      case 2:
-        activePage = const StockSummaryPage();
-        break;
-      case 3:
-        activePage = const InvoiceCreationPage();
-        break;
-      case 4:
-        activePage = const PaymentReceiptPage();
-        break;
-      case 5:
         activePage = const ReportViewerPage();
         break;
+      case 2:
+        activePage = const LedgerListPage();
+        break;
+      case 3:
+        activePage = const StockSummaryPage();
+        break;
+      case 4:
+        activePage = const InvoiceCreationPage();
+        break;
+      case 5:
+        activePage = const PaymentReceiptPage();
+        break;
       case 6:
-        activePage = const DataExchangePage();
+        activePage = const ReportViewerPage(initialTabIndex: 1);
         break;
       case 7:
+        activePage = const DataExchangePage();
+        break;
+      case 8:
         activePage = const SettingsPage();
         break;
       default:
@@ -115,13 +120,8 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     return Scaffold(
       body: Row(
         children: [
-          Sidebar(
-            currentIndex: _currentIndex,
-            onTap: _onNavigate,
-          ),
-          Expanded(
-            child: activePage,
-          ),
+          Sidebar(currentIndex: _currentIndex, onTap: _onNavigate),
+          Expanded(child: activePage),
         ],
       ),
     );

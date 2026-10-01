@@ -10,16 +10,50 @@ import '../data/database.dart';
 import 'theme/app_theme.dart';
 import 'widgets/voucher_detail_dialog.dart';
 
+class _DayBookEntryLine {
+  final VoucherEntry entry;
+  final String ledgerName;
+  final bool isPartyReference;
+
+  const _DayBookEntryLine({
+    required this.entry,
+    required this.ledgerName,
+    required this.isPartyReference,
+  });
+
+  double get debitAmount => isPartyReference ? 0.0 : entry.debitAmount;
+  double get creditAmount => isPartyReference ? 0.0 : entry.creditAmount;
+}
+
+class _DayBookVoucherRecord {
+  final Voucher voucher;
+  String? partyName;
+  final List<_DayBookEntryLine> entries = [];
+
+  _DayBookVoucherRecord(this.voucher, this.partyName);
+
+  double get totalDebit =>
+      entries.fold(0.0, (total, line) => total + line.debitAmount);
+  double get totalCredit =>
+      entries.fold(0.0, (total, line) => total + line.creditAmount);
+}
+
 class ReportViewerPage extends StatefulWidget {
-  const ReportViewerPage({super.key});
+  final int initialTabIndex;
+
+  const ReportViewerPage({super.key, this.initialTabIndex = 0});
 
   @override
   State<ReportViewerPage> createState() => _ReportViewerPageState();
 }
 
-class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerProviderStateMixin {
+class _ReportViewerPageState extends State<ReportViewerPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(
+    symbol: 'Rs. ',
+    decimalDigits: 2,
+  );
 
   DateTime _selectedDaybookDate = DateTime.now();
   bool _enableDaybookDateFilter = false;
@@ -27,7 +61,15 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    final initialTabIndex =
+        widget.initialTabIndex >= 0 && widget.initialTabIndex < 4
+        ? widget.initialTabIndex
+        : 0;
+    _tabController = TabController(
+      length: 4,
+      initialIndex: initialTabIndex,
+      vsync: this,
+    );
   }
 
   @override
@@ -47,14 +89,29 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
 
       if (tabIndex == 0) {
         // Day Book
-        final startDate = _enableDaybookDateFilter ? DateTime(_selectedDaybookDate.year, _selectedDaybookDate.month, _selectedDaybookDate.day) : null;
-        final endDate = _enableDaybookDateFilter ? DateTime(_selectedDaybookDate.year, _selectedDaybookDate.month, _selectedDaybookDate.day, 23, 59, 59) : null;
+        final startDate = _enableDaybookDateFilter
+            ? DateTime(
+                _selectedDaybookDate.year,
+                _selectedDaybookDate.month,
+                _selectedDaybookDate.day,
+              )
+            : null;
+        final endDate = _enableDaybookDateFilter
+            ? DateTime(
+                _selectedDaybookDate.year,
+                _selectedDaybookDate.month,
+                _selectedDaybookDate.day + 1,
+              ).subtract(const Duration(microseconds: 1))
+            : null;
         final dayRows = await engine.getDayBook(
           startDate: startDate,
           endDate: endDate,
           limit: 1000,
         );
-        bytes = await pdfService.exportDayBookPdf(_selectedDaybookDate, dayRows);
+        bytes = await pdfService.exportDayBookPdf(
+          _selectedDaybookDate,
+          dayRows,
+        );
       } else if (tabIndex == 1) {
         // Trial Balance
         final tbRows = await engine.getTrialBalance();
@@ -75,7 +132,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to generate PDF: $e')),
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Failed to generate PDF: $e'),
+          ),
         );
       }
     }
@@ -86,7 +146,14 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Financial Reports & Statements', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Financial Reports & Statements',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
         actions: [
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
@@ -95,7 +162,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             ),
             icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
-            label: const Text('Export PDF / Print', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            label: const Text(
+              'Export PDF / Print',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
             onPressed: _exportCurrentTabPdf,
           ),
           const SizedBox(width: 16),
@@ -128,13 +198,40 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
   // 1. Daybook View
   Widget _buildDaybookTab() {
     final db = Provider.of<AppDatabase>(context);
-
-    final query = db.select(db.vouchers)..orderBy([(t) => drift.OrderingTerm.desc(t.date)]);
+    final partyLedgerTable = db.ledgers.createAlias('daybook_party');
+    final query = db.select(db.vouchers).join(
+      [
+        drift.leftOuterJoin(
+          db.voucherEntries,
+          db.voucherEntries.voucherId.equalsExp(db.vouchers.id),
+        ),
+        drift.leftOuterJoin(
+          db.ledgers,
+          db.ledgers.id.equalsExp(db.voucherEntries.ledgerId),
+        ),
+        drift.leftOuterJoin(
+          partyLedgerTable,
+          partyLedgerTable.id.equalsExp(db.vouchers.partyLedgerId),
+        ),
+      ],
+    )..where(db.vouchers.status.isNull() | db.vouchers.status.equals('POSTED'));
     if (_enableDaybookDateFilter) {
-      final startOfDay = DateTime(_selectedDaybookDate.year, _selectedDaybookDate.month, _selectedDaybookDate.day);
-      final endOfDay = DateTime(_selectedDaybookDate.year, _selectedDaybookDate.month, _selectedDaybookDate.day, 23, 59, 59);
-      query.where((t) => t.date.isBiggerOrEqual(drift.Variable(startOfDay)) & t.date.isSmallerOrEqual(drift.Variable(endOfDay)));
+      final startOfDay = DateTime(
+        _selectedDaybookDate.year,
+        _selectedDaybookDate.month,
+        _selectedDaybookDate.day,
+      );
+      final startOfNextDay = startOfDay.add(const Duration(days: 1));
+      query.where(
+        db.vouchers.date.isBiggerOrEqual(drift.Variable(startOfDay)) &
+            db.vouchers.date.isSmallerThan(drift.Variable(startOfNextDay)),
+      );
     }
+    query.orderBy([
+      drift.OrderingTerm.desc(db.vouchers.date),
+      drift.OrderingTerm.desc(db.vouchers.voucherNumber),
+      drift.OrderingTerm.asc(db.voucherEntries.id),
+    ]);
     final stream = query.watch();
 
     return Column(
@@ -151,14 +248,26 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
             children: [
               Row(
                 children: [
-                  const Icon(Icons.filter_list_rounded, color: AppColors.primary, size: 20),
+                  const Icon(
+                    Icons.filter_list_rounded,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
-                  const Text('Filter by Date', style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Filter by Date',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Switch(
                     value: _enableDaybookDateFilter,
                     activeColor: AppColors.primary,
-                    onChanged: (val) => setState(() => _enableDaybookDateFilter = val),
+                    onChanged: (val) =>
+                        setState(() => _enableDaybookDateFilter = val),
                   ),
                 ],
               ),
@@ -168,8 +277,14 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                     foregroundColor: AppColors.textPrimary,
                     side: const BorderSide(color: AppColors.borderStrong),
                   ),
-                  icon: const Icon(Icons.calendar_month_rounded, size: 16, color: AppColors.primary),
-                  label: Text(DateFormat('dd-MMM-yyyy').format(_selectedDaybookDate)),
+                  icon: const Icon(
+                    Icons.calendar_month_rounded,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  label: Text(
+                    DateFormat('dd-MMM-yyyy').format(_selectedDaybookDate),
+                  ),
                   onPressed: () async {
                     final picked = await showDatePicker(
                       context: context,
@@ -187,202 +302,457 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
         ),
         // Daybook entries list
         Expanded(
-          child: StreamBuilder<List<Voucher>>(
+          child: StreamBuilder<List<drift.TypedResult>>(
             stream: stream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+                return Center(
+                  child: Text(
+                    'Error: ${snapshot.error}',
+                    style: const TextStyle(color: AppColors.error),
+                  ),
+                );
               }
 
-              final vouchers = snapshot.data ?? [];
-              if (vouchers.isEmpty) {
-                return const Center(child: Text('No vouchers posted on this date.', style: TextStyle(color: AppColors.textMuted)));
+              final recordsById = <String, _DayBookVoucherRecord>{};
+              for (final row in snapshot.data ?? const <drift.TypedResult>[]) {
+                final voucher = row.readTable(db.vouchers);
+                final partyLedger = row.readTableOrNull(partyLedgerTable);
+                final record = recordsById.putIfAbsent(
+                  voucher.id,
+                  () => _DayBookVoucherRecord(voucher, partyLedger?.name),
+                );
+                record.partyName ??= partyLedger?.name;
+                final entry = row.readTableOrNull(db.voucherEntries);
+                if (entry != null) {
+                  final ledger = row.readTableOrNull(db.ledgers);
+                  final isNeutralEntry =
+                      entry.debitAmount > 0 &&
+                      entry.debitAmount == entry.creditAmount;
+                  final isLegacyPartyReference =
+                      isNeutralEntry &&
+                      (voucher.partyLedgerId == entry.ledgerId ||
+                          (voucher.voucherType == 'Sales' &&
+                              ledger?.groupId == 'debtors') ||
+                          (voucher.voucherType == 'Purchase' &&
+                              ledger?.groupId == 'creditors'));
+                  if (isLegacyPartyReference) {
+                    record.partyName ??= ledger?.name;
+                  } else {
+                    record.entries.add(
+                      _DayBookEntryLine(
+                        entry: entry,
+                        ledgerName: ledger?.name ?? 'Unknown ledger',
+                        isPartyReference: false,
+                      ),
+                    );
+                  }
+                }
+              }
+              final records = recordsById.values.toList();
+              if (records.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No posted vouchers found for this view.',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
+                );
               }
 
               return ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: vouchers.length,
+                itemCount: records.length,
                 itemBuilder: (context, index) {
-                  final voucher = vouchers[index];
-                  
-                  return FutureBuilder<List<VoucherEntry>>(
-                    future: (db.select(db.voucherEntries)..where((t) => t.voucherId.equals(voucher.id))).get(),
-                    builder: (context, entrySnap) {
-                      final entries = entrySnap.data ?? [];
-                      double voucherTotal = entries.fold(0.0, (sum, ent) => sum + ent.debitAmount);
-                      final isCancelled = voucher.status == 'CANCELLED';
+                  final record = records[index];
+                  final voucher = record.voucher;
+                  final isCancelled = voucher.status == 'CANCELLED';
 
-                      return Card(
-                        color: AppColors.surface,
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: const BorderSide(color: AppColors.border),
-                        ),
-                        child: ExpansionTile(
-                          iconColor: AppColors.textSecondary,
-                          collapsedIconColor: AppColors.textMuted,
-                          title: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  return Card(
+                    color: AppColors.surface,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
+                    child: ExpansionTile(
+                      key: PageStorageKey(voucher.id),
+                      iconColor: AppColors.textSecondary,
+                      collapsedIconColor: AppColors.textMuted,
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              voucher.voucherNumber,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isCancelled
+                                  ? AppColors.surfaceSecondary
+                                  : (voucher.voucherType == 'Sales'
+                                        ? AppColors.successBg
+                                        : (voucher.voucherType == 'Purchase'
+                                              ? AppColors.warningBg
+                                              : AppColors.infoBg)),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isCancelled
+                                  ? 'CANCELLED'
+                                  : voucher.voucherType.toUpperCase(),
+                              style: TextStyle(
+                                color: isCancelled
+                                    ? AppColors.textMuted
+                                    : (voucher.voucherType == 'Sales'
+                                          ? AppColors.success
+                                          : (voucher.voucherType == 'Purchase'
+                                                ? AppColors.warning
+                                                : AppColors.info)),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              DateFormat(
+                                'dd-MMM-yyyy hh:mm a',
+                              ).format(voucher.date),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _currencyFormat.format(record.totalDebit),
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          color: AppColors.surfaceSecondary.withOpacity(0.5),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(voucher.voucherNumber, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isCancelled
-                                      ? AppColors.surfaceSecondary
-                                      : (voucher.voucherType == 'Sales'
-                                          ? AppColors.successBg
-                                          : (voucher.voucherType == 'Purchase' ? AppColors.warningBg : AppColors.infoBg)),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  isCancelled ? 'CANCELLED' : voucher.voucherType.toUpperCase(),
-                                  style: TextStyle(
-                                    color: isCancelled
-                                        ? AppColors.textMuted
-                                        : (voucher.voucherType == 'Sales'
-                                            ? AppColors.success
-                                            : (voucher.voucherType == 'Purchase' ? AppColors.warning : AppColors.info)),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                              if (voucher.narration != null &&
+                                  voucher.narration!.isNotEmpty) ...[
+                                Text(
+                                  'Narration: ${voucher.narration}',
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(DateFormat('dd-MMM-yyyy hh:mm a').format(voucher.date), style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                              Text(_currencyFormat.format(voucherTotal), style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
-                            ],
-                          ),
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              color: AppColors.surfaceSecondary.withOpacity(0.5),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                const SizedBox(height: 8),
+                              ],
+                              Wrap(
+                                spacing: 20,
+                                runSpacing: 6,
                                 children: [
-                                  if (voucher.narration != null && voucher.narration!.isNotEmpty) ...[
-                                    Text('Narration: ${voucher.narration}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
-                                    const SizedBox(height: 8),
-                                  ],
-                                  const Divider(color: AppColors.border, height: 1),
-                                  const SizedBox(height: 8),
-                                  ...entries.map((ent) {
-                                    return FutureBuilder<Ledger>(
-                                      future: (db.select(db.ledgers)..where((t) => t.id.equals(ent.ledgerId))).getSingle(),
-                                      builder: (context, ledgerSnap) {
-                                        final ledgerName = ledgerSnap.data?.name ?? 'Loading...';
-                                        final double amt = ent.debitAmount > 0 ? ent.debitAmount : ent.creditAmount;
-                                        final isDr = ent.debitAmount > 0;
-
-                                        return Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Text(
-                                                isDr ? ledgerName : '   To $ledgerName',
-                                                style: TextStyle(
-                                                  color: isDr ? AppColors.textPrimary : AppColors.textSecondary,
-                                                  fontWeight: isDr ? FontWeight.w600 : FontWeight.normal,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                              Text(
-                                                '${_currencyFormat.format(amt)} ${isDr ? "Dr" : "Cr"}',
-                                                style: TextStyle(
-                                                  color: isDr ? AppColors.success : AppColors.error,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  }),
-                                  const SizedBox(height: 10),
-                                  const Divider(color: AppColors.border, height: 1),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      TextButton.icon(
-                                        style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                                        icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                                        label: const Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                        onPressed: () async {
-                                          final confirm = await showDialog<bool>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              backgroundColor: AppColors.surface,
-                                              title: Text('Delete ${voucher.voucherType} Permanently?', style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
-                                              content: Text(
-                                                'Permanently delete ${voucher.voucherType} #${voucher.voucherNumber}?\n\n'
-                                                'This will reverse all inventory movements and ledger balances.',
-                                                style: const TextStyle(color: AppColors.textSecondary),
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
-                                                  onPressed: () => Navigator.pop(ctx, false),
-                                                ),
-                                                ElevatedButton(
-                                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-                                                  child: const Text('Delete Permanently', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                                  onPressed: () => Navigator.pop(ctx, true),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-
-                                          if (confirm == true) {
-                                            try {
-                                              final engine = Provider.of<AccountingEngine>(context, listen: false);
-                                              await engine.deleteVoucher(voucher.id);
-                                              if (context.mounted) {
-                                                setState(() {});
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(
-                                                    backgroundColor: AppColors.error,
-                                                    content: Text('${voucher.voucherType} #${voucher.voucherNumber} deleted.'),
-                                                  ),
-                                                );
-                                              }
-                                            } catch (e) {
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(backgroundColor: AppColors.error, content: Text('Delete failed: $e')),
-                                                );
-                                              }
-                                            }
-                                          }
-                                        },
+                                  if (record.partyName != null)
+                                    Text('Party: ${record.partyName}'),
+                                  if (voucher.referenceNumber != null &&
+                                      voucher.referenceNumber!.isNotEmpty)
+                                    Text(
+                                      'Reference: ${voucher.referenceNumber}',
+                                    ),
+                                  if (voucher.paymentMode != null &&
+                                      voucher.paymentMode!.isNotEmpty)
+                                    Text('Payment: ${voucher.paymentMode}'),
+                                  Text('Voucher ID: ${voucher.id}'),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              const Divider(color: AppColors.border, height: 1),
+                              const SizedBox(height: 8),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  children: const [
+                                    Expanded(child: Text('Account')),
+                                    SizedBox(
+                                      width: 110,
+                                      child: Text(
+                                        'Debit',
+                                        textAlign: TextAlign.right,
                                       ),
-                                      const SizedBox(width: 8),
-                                      TextButton.icon(
-                                        style: TextButton.styleFrom(foregroundColor: AppColors.primary),
-                                        icon: const Icon(Icons.zoom_in_rounded, size: 16),
-                                        label: const Text('View Bill / Alter Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                        onPressed: () => VoucherDetailDialog.show(context, voucher.id, onDeleted: () => setState(() {})),
+                                    ),
+                                    SizedBox(
+                                      width: 110,
+                                      child: Text(
+                                        'Credit',
+                                        textAlign: TextAlign.right,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ...record.entries.map((line) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          line.ledgerName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: AppColors.textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 110,
+                                        child: Text(
+                                          line.debitAmount == 0
+                                              ? '-'
+                                              : _currencyFormat.format(
+                                                  line.debitAmount,
+                                                ),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            color: AppColors.success,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 110,
+                                        child: Text(
+                                          line.creditAmount == 0
+                                              ? '-'
+                                              : _currencyFormat.format(
+                                                  line.creditAmount,
+                                                ),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            color: AppColors.error,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),
+                                );
+                              }),
+                              const Divider(
+                                color: AppColors.border,
+                                height: 12,
+                              ),
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Voucher total',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 110,
+                                    child: Text(
+                                      _currencyFormat.format(record.totalDebit),
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 110,
+                                    child: Text(
+                                      _currencyFormat.format(
+                                        record.totalCredit,
+                                      ),
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+                              const Divider(color: AppColors.border, height: 1),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 8,
+                                children: [
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.error,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      'Delete',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    onPressed: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          backgroundColor: AppColors.surface,
+                                          title: Text(
+                                            'Delete ${voucher.voucherType} Permanently?',
+                                            style: const TextStyle(
+                                              color: AppColors.error,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          content: Text(
+                                            'Permanently delete ${voucher.voucherType} #${voucher.voucherNumber}?\n\n'
+                                            'This will reverse all inventory movements and ledger balances.',
+                                            style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              child: const Text(
+                                                'Cancel',
+                                                style: TextStyle(
+                                                  color: AppColors.textMuted,
+                                                ),
+                                              ),
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, false),
+                                            ),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    AppColors.error,
+                                              ),
+                                              child: const Text(
+                                                'Delete Permanently',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, true),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+
+                                      if (confirm == true && context.mounted) {
+                                        try {
+                                          final engine =
+                                              Provider.of<AccountingEngine>(
+                                                context,
+                                                listen: false,
+                                              );
+                                          await engine.deleteVoucher(
+                                            voucher.id,
+                                          );
+                                          if (context.mounted) {
+                                            setState(() {});
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                backgroundColor:
+                                                    AppColors.error,
+                                                content: Text(
+                                                  '${voucher.voucherType} #${voucher.voucherNumber} deleted.',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                backgroundColor:
+                                                    AppColors.error,
+                                                content: Text(
+                                                  'Delete failed: $e',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.zoom_in_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      'View Bill / Alter Details',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    onPressed: () => VoucherDetailDialog.show(
+                                      context,
+                                      voucher.id,
+                                      onDeleted: () => setState(() {}),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   );
                 },
               );
@@ -404,12 +774,23 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+          return Center(
+            child: Text(
+              'Error: ${snapshot.error}',
+              style: const TextStyle(color: AppColors.error),
+            ),
+          );
         }
 
         final rows = snapshot.data ?? [];
-        double totalDebit = rows.fold(0.0, (sum, row) => sum + row.debitBalance);
-        double totalCredit = rows.fold(0.0, (sum, row) => sum + row.creditBalance);
+        double totalDebit = rows.fold(
+          0.0,
+          (sum, row) => sum + row.debitBalance,
+        );
+        double totalCredit = rows.fold(
+          0.0,
+          (sum, row) => sum + row.creditBalance,
+        );
 
         return Padding(
           padding: const EdgeInsets.all(20.0),
@@ -422,41 +803,86 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _buildReportHeader(['Account Ledger', 'Group', 'Debit Balance', 'Credit Balance']),
+                _buildReportHeader([
+                  'Account Ledger',
+                  'Group',
+                  'Debit Balance',
+                  'Credit Balance',
+                ]),
                 const SizedBox(height: 8),
 
                 Expanded(
                   child: rows.isEmpty
-                      ? const Center(child: Text('No ledger accounts with non-zero balances.', style: TextStyle(color: AppColors.textMuted)))
+                      ? const Center(
+                          child: Text(
+                            'No ledger accounts with non-zero balances.',
+                            style: TextStyle(color: AppColors.textMuted),
+                          ),
+                        )
                       : ListView.builder(
                           itemCount: rows.length,
                           itemBuilder: (context, index) {
                             final row = rows[index];
                             return InkWell(
-                              onTap: () => _showLedgerStatementDialog(row.ledgerId, row.ledgerName),
+                              onTap: () => _showLedgerStatementDialog(
+                                row.ledgerId,
+                                row.ledgerName,
+                              ),
                               child: _buildReportRow([
                                 row.ledgerName,
                                 row.groupName,
-                                row.debitBalance > 0 ? _currencyFormat.format(row.debitBalance) : '-',
-                                row.creditBalance > 0 ? _currencyFormat.format(row.creditBalance) : '-',
+                                row.debitBalance > 0
+                                    ? _currencyFormat.format(row.debitBalance)
+                                    : '-',
+                                row.creditBalance > 0
+                                    ? _currencyFormat.format(row.creditBalance)
+                                    : '-',
                               ], index % 2 == 0),
                             );
                           },
                         ),
                 ),
 
-                const Divider(color: AppColors.border, thickness: 1, height: 24),
+                const Divider(
+                  color: AppColors.border,
+                  thickness: 1,
+                  height: 24,
+                ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total Sum', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
+                      const Text(
+                        'Total Sum',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
                       Row(
                         children: [
-                          Text(_currencyFormat.format(totalDebit), style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text(
+                            _currencyFormat.format(totalDebit),
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
                           const SizedBox(width: 80),
-                          Text(_currencyFormat.format(totalCredit), style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text(
+                            _currencyFormat.format(totalCredit),
+                            style: const TextStyle(
+                              color: AppColors.error,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -481,7 +907,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+          return Center(
+            child: Text(
+              'Error: ${snapshot.error}',
+              style: const TextStyle(color: AppColors.error),
+            ),
+          );
         }
 
         final report = snapshot.data!;
@@ -505,21 +936,59 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('DEBITS (Trading & Expenses)', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'DEBITS (Trading & Expenses)',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Opening Stock Value', report.openingStockValue),
-                        _buildPLRow('Add: Purchases', report.purchaseValue, onTap: () => _showGroupScheduleDialog('purchase_accounts', 'Purchase Accounts')),
-                        _buildPLRow('Direct Expenses', report.directExpenses, onTap: () => _showGroupScheduleDialog('direct_expenses', 'Direct Expenses')),
+                        _buildPLRow(
+                          'Opening Stock Value',
+                          report.openingStockValue,
+                        ),
+                        _buildPLRow(
+                          'Add: Purchases',
+                          report.purchaseValue,
+                          onTap: () => _showGroupScheduleDialog(
+                            'purchase_accounts',
+                            'Purchase Accounts',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Direct Expenses',
+                          report.directExpenses,
+                          onTap: () => _showGroupScheduleDialog(
+                            'direct_expenses',
+                            'Direct Expenses',
+                          ),
+                        ),
                         const Divider(color: AppColors.border),
-                        _buildPLRow('Gross Profit (Transferred)', report.grossProfit, highlight: true, valueColor: AppColors.primary),
+                        _buildPLRow(
+                          'Gross Profit (Transferred)',
+                          report.grossProfit,
+                          highlight: true,
+                          valueColor: AppColors.primary,
+                        ),
                         const Divider(color: AppColors.border, height: 24),
-                        _buildPLRow('Indirect Expenses', report.indirectExpenses, onTap: () => _showGroupScheduleDialog('indirect_expenses', 'Indirect Expenses')),
+                        _buildPLRow(
+                          'Indirect Expenses',
+                          report.indirectExpenses,
+                          onTap: () => _showGroupScheduleDialog(
+                            'indirect_expenses',
+                            'Indirect Expenses',
+                          ),
+                        ),
                         const Divider(color: AppColors.border),
                         _buildPLRow(
                           report.netProfit >= 0 ? 'Net Profit' : 'Net Loss',
                           report.netProfit.abs(),
                           highlight: true,
-                          valueColor: report.netProfit >= 0 ? AppColors.success : AppColors.error,
+                          valueColor: report.netProfit >= 0
+                              ? AppColors.success
+                              : AppColors.error,
                         ),
                       ],
                     ),
@@ -539,23 +1008,48 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('CREDITS (Trading & Revenue)', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'CREDITS (Trading & Revenue)',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Sales Accounts Revenue', report.salesValue, onTap: () => _showGroupScheduleDialog('sales_accounts', 'Sales Accounts')),
-                        _buildPLRow('Closing Stock Value', report.closingStockValue),
+                        _buildPLRow(
+                          'Sales Accounts Revenue',
+                          report.salesValue,
+                          onTap: () => _showGroupScheduleDialog(
+                            'sales_accounts',
+                            'Sales Accounts',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Closing Stock Value',
+                          report.closingStockValue,
+                        ),
                         const Divider(color: AppColors.border),
                         const SizedBox(height: 52),
                         const Divider(color: AppColors.border, height: 24),
-                        _buildPLRow('Gross Profit b/f', report.grossProfit, highlight: true, valueColor: AppColors.primary),
+                        _buildPLRow(
+                          'Gross Profit b/f',
+                          report.grossProfit,
+                          highlight: true,
+                          valueColor: AppColors.primary,
+                        ),
                       ],
                     ),
                   ),
                 ),
               ];
 
-              return isNarrow 
+              return isNarrow
                   ? SingleChildScrollView(child: Column(children: plContent))
-                  : Row(crossAxisAlignment: CrossAxisAlignment.start, children: plContent);
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: plContent,
+                    );
             },
           ),
         );
@@ -574,11 +1068,20 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+          return Center(
+            child: Text(
+              'Error: ${snapshot.error}',
+              style: const TextStyle(color: AppColors.error),
+            ),
+          );
         }
 
         final bs = snapshot.data!;
-        final double totalLiabilitiesBox = bs.capitalBalance + bs.netProfitSurplus + bs.sundryCreditors + bs.totalLiabilities;
+        final double totalLiabilitiesBox =
+            bs.capitalBalance +
+            bs.netProfitSurplus +
+            bs.sundryCreditors +
+            bs.totalLiabilities;
         final double totalAssetsBox = bs.totalAssets;
 
         return Padding(
@@ -600,15 +1103,53 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('LIABILITIES & CAPITAL', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'LIABILITIES & CAPITAL',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Capital Account Balance', bs.capitalBalance, onTap: () => _showGroupScheduleDialog('equity', 'Capital Account')),
-                        _buildPLRow('Profit & Loss Surplus (Net Profit)', bs.netProfitSurplus, valueColor: bs.netProfitSurplus >= 0 ? AppColors.success : AppColors.error),
-                        _buildPLRow('Sundry Creditors (Suppliers)', bs.sundryCreditors, onTap: () => _showGroupScheduleDialog('sundry_creditors', 'Sundry Creditors')),
-                        _buildPLRow('Duties & Taxes (Liabilities)', bs.totalLiabilities, onTap: () => _showGroupScheduleDialog('duties_taxes', 'Duties & Taxes')),
+                        _buildPLRow(
+                          'Capital Account Balance',
+                          bs.capitalBalance,
+                          onTap: () => _showGroupScheduleDialog(
+                            'equity',
+                            'Capital Account',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Profit & Loss Surplus (Net Profit)',
+                          bs.netProfitSurplus,
+                          valueColor: bs.netProfitSurplus >= 0
+                              ? AppColors.success
+                              : AppColors.error,
+                        ),
+                        _buildPLRow(
+                          'Sundry Creditors (Suppliers)',
+                          bs.sundryCreditors,
+                          onTap: () => _showGroupScheduleDialog(
+                            'sundry_creditors',
+                            'Sundry Creditors',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Duties & Taxes (Liabilities)',
+                          bs.totalLiabilities,
+                          onTap: () => _showGroupScheduleDialog(
+                            'duties_taxes',
+                            'Duties & Taxes',
+                          ),
+                        ),
                         const SizedBox(height: 40),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Total Capital & Liabilities', totalLiabilitiesBox, highlight: true),
+                        _buildPLRow(
+                          'Total Capital & Liabilities',
+                          totalLiabilitiesBox,
+                          highlight: true,
+                        ),
                       ],
                     ),
                   ),
@@ -627,15 +1168,48 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('ASSETS', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'ASSETS',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Cash-in-hand Balance', bs.cashBalance, onTap: () => _showGroupScheduleDialog('cash_in_hand', 'Cash-in-Hand')),
-                        _buildPLRow('Bank Accounts Balance', bs.bankBalance, onTap: () => _showGroupScheduleDialog('bank_accounts', 'Bank Accounts')),
-                        _buildPLRow('Sundry Debtors (Customers)', bs.sundryDebtors, onTap: () => _showGroupScheduleDialog('sundry_debtors', 'Sundry Debtors')),
+                        _buildPLRow(
+                          'Cash-in-hand Balance',
+                          bs.cashBalance,
+                          onTap: () => _showGroupScheduleDialog(
+                            'cash_in_hand',
+                            'Cash-in-Hand',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Bank Accounts Balance',
+                          bs.bankBalance,
+                          onTap: () => _showGroupScheduleDialog(
+                            'bank_accounts',
+                            'Bank Accounts',
+                          ),
+                        ),
+                        _buildPLRow(
+                          'Sundry Debtors (Customers)',
+                          bs.sundryDebtors,
+                          onTap: () => _showGroupScheduleDialog(
+                            'sundry_debtors',
+                            'Sundry Debtors',
+                          ),
+                        ),
                         _buildPLRow('Closing Stock Valuation', bs.closingStock),
                         const SizedBox(height: 40),
                         const Divider(color: AppColors.border, height: 20),
-                        _buildPLRow('Total Assets Valuation', totalAssetsBox, highlight: true, valueColor: AppColors.success),
+                        _buildPLRow(
+                          'Total Assets Valuation',
+                          totalAssetsBox,
+                          highlight: true,
+                          valueColor: AppColors.success,
+                        ),
                       ],
                     ),
                   ),
@@ -644,7 +1218,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
 
               return isNarrow
                   ? SingleChildScrollView(child: Column(children: bsContent))
-                  : Row(crossAxisAlignment: CrossAxisAlignment.start, children: bsContent);
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: bsContent,
+                    );
             },
           ),
         );
@@ -663,7 +1240,14 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
       child: Row(
         children: headers.map((h) {
           return Expanded(
-            child: Text(h, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Text(
+              h,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           );
         }).toList(),
       ),
@@ -674,13 +1258,21 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: alt ? AppColors.surfaceSecondary.withOpacity(0.3) : AppColors.surface,
+        color: alt
+            ? AppColors.surfaceSecondary.withOpacity(0.3)
+            : AppColors.surface,
         border: const Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: values.map((v) {
           return Expanded(
-            child: Text(v, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
+            child: Text(
+              v,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+              ),
+            ),
           );
         }).toList(),
       ),
@@ -695,7 +1287,13 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
       builder: (context) {
         return AlertDialog(
           backgroundColor: AppColors.surface,
-          title: Text('$ledgerName - Statement', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+          title: Text(
+            '$ledgerName - Statement',
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           content: SizedBox(
             width: 800,
             height: 500,
@@ -706,7 +1304,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+                  return Center(
+                    child: Text(
+                      'Error: ${snapshot.error}',
+                      style: const TextStyle(color: AppColors.error),
+                    ),
+                  );
                 }
 
                 final rows = snapshot.data ?? [];
@@ -714,7 +1317,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                 return Column(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceSecondary,
                         borderRadius: BorderRadius.circular(6),
@@ -722,12 +1328,72 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                       ),
                       child: const Row(
                         children: [
-                          Expanded(flex: 2, child: Text('Date', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
-                          Expanded(flex: 2, child: Text('Vch Type', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
-                          Expanded(flex: 2, child: Text('Vch No.', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
-                          Expanded(flex: 2, child: Text('Debit', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
-                          Expanded(flex: 2, child: Text('Credit', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
-                          Expanded(flex: 3, child: Text('Running Balance', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12))),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Date',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Vch Type',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Vch No.',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Debit',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Credit',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              'Running Balance',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -735,7 +1401,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
 
                     Expanded(
                       child: rows.isEmpty
-                          ? const Center(child: Text('No transactions recorded in this ledger.', style: TextStyle(color: AppColors.textMuted)))
+                          ? const Center(
+                              child: Text(
+                                'No transactions recorded in this ledger.',
+                                style: TextStyle(color: AppColors.textMuted),
+                              ),
+                            )
                           : ListView.builder(
                               itemCount: rows.length,
                               itemBuilder: (context, index) {
@@ -751,19 +1422,96 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                                     );
                                   },
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: isAlt ? AppColors.surfaceSecondary.withOpacity(0.3) : AppColors.surface,
-                                      border: const Border(bottom: BorderSide(color: AppColors.border)),
+                                      color: isAlt
+                                          ? AppColors.surfaceSecondary
+                                                .withOpacity(0.3)
+                                          : AppColors.surface,
+                                      border: const Border(
+                                        bottom: BorderSide(
+                                          color: AppColors.border,
+                                        ),
+                                      ),
                                     ),
                                     child: Row(
                                       children: [
-                                        Expanded(flex: 2, child: Text(DateFormat('dd-MMM-yyyy hh:mm a').format(row.date), style: const TextStyle(color: AppColors.textPrimary, fontSize: 12))),
-                                        Expanded(flex: 2, child: Text(row.voucherType, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12))),
-                                        Expanded(flex: 2, child: Text(row.voucherNo, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12))),
-                                        Expanded(flex: 2, child: Text(row.debit > 0 ? _currencyFormat.format(row.debit) : '-', style: const TextStyle(color: AppColors.success, fontSize: 12))),
-                                        Expanded(flex: 2, child: Text(row.credit > 0 ? _currencyFormat.format(row.credit) : '-', style: const TextStyle(color: AppColors.error, fontSize: 12))),
-                                        Expanded(flex: 3, child: Text(_currencyFormat.format(row.runningBalance), style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12))),
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            DateFormat(
+                                              'dd-MMM-yyyy hh:mm a',
+                                            ).format(row.date),
+                                            style: const TextStyle(
+                                              color: AppColors.textPrimary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            row.voucherType,
+                                            style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            row.voucherNo,
+                                            style: const TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            row.debit > 0
+                                                ? _currencyFormat.format(
+                                                    row.debit,
+                                                  )
+                                                : '-',
+                                            style: const TextStyle(
+                                              color: AppColors.success,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            row.credit > 0
+                                                ? _currencyFormat.format(
+                                                    row.credit,
+                                                  )
+                                                : '-',
+                                            style: const TextStyle(
+                                              color: AppColors.error,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          flex: 3,
+                                          child: Text(
+                                            _currencyFormat.format(
+                                              row.runningBalance,
+                                            ),
+                                            style: const TextStyle(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -778,7 +1526,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
           ),
           actions: [
             TextButton(
-              child: const Text('Close', style: TextStyle(color: AppColors.textPrimary)),
+              child: const Text(
+                'Close',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ],
@@ -796,18 +1547,31 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
       builder: (context) {
         return AlertDialog(
           backgroundColor: AppColors.surface,
-          title: Text('$groupName Schedule', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+          title: Text(
+            '$groupName Schedule',
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           content: SizedBox(
             width: 500,
             height: 400,
             child: FutureBuilder<List<Ledger>>(
-              future: (db.select(db.ledgers)..where((t) => t.groupId.equals(groupId))).get(),
+              future: (db.select(
+                db.ledgers,
+              )..where((t) => t.groupId.equals(groupId))).get(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
+                  return Center(
+                    child: Text(
+                      'Error: ${snapshot.error}',
+                      style: const TextStyle(color: AppColors.error),
+                    ),
+                  );
                 }
 
                 final ledgers = snapshot.data ?? [];
@@ -815,7 +1579,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                 return Column(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceSecondary,
                         borderRadius: BorderRadius.circular(6),
@@ -824,8 +1591,22 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Ledger Name', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12)),
-                          Text('Closing Balance', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12)),
+                          Text(
+                            'Ledger Name',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            'Closing Balance',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -833,7 +1614,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
 
                     Expanded(
                       child: ledgers.isEmpty
-                          ? const Center(child: Text('No accounts found in this group.', style: TextStyle(color: AppColors.textMuted)))
+                          ? const Center(
+                              child: Text(
+                                'No accounts found in this group.',
+                                style: TextStyle(color: AppColors.textMuted),
+                              ),
+                            )
                           : ListView.builder(
                               itemCount: ledgers.length,
                               itemBuilder: (context, index) {
@@ -848,22 +1634,45 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                                     return InkWell(
                                       onTap: () {
                                         Navigator.pop(context);
-                                        _showLedgerStatementDialog(l.id, l.name);
+                                        _showLedgerStatementDialog(
+                                          l.id,
+                                          l.name,
+                                        );
                                       },
                                       child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 10,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: isAlt ? AppColors.surfaceSecondary.withOpacity(0.3) : AppColors.surface,
-                                          border: const Border(bottom: BorderSide(color: AppColors.border)),
+                                          color: isAlt
+                                              ? AppColors.surfaceSecondary
+                                                    .withOpacity(0.3)
+                                              : AppColors.surface,
+                                          border: const Border(
+                                            bottom: BorderSide(
+                                              color: AppColors.border,
+                                            ),
+                                          ),
                                         ),
                                         child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
-                                            Text(l.name, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+                                            Text(
+                                              l.name,
+                                              style: const TextStyle(
+                                                color: AppColors.textPrimary,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
                                             Text(
                                               _currencyFormat.format(bal.abs()),
                                               style: TextStyle(
-                                                color: bal >= 0 ? AppColors.success : AppColors.error,
+                                                color: bal >= 0
+                                                    ? AppColors.success
+                                                    : AppColors.error,
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -884,7 +1693,10 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
           ),
           actions: [
             TextButton(
-              child: const Text('Close', style: TextStyle(color: AppColors.textPrimary)),
+              child: const Text(
+                'Close',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ],
@@ -893,7 +1705,13 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
     );
   }
 
-  Widget _buildPLRow(String title, double amount, {bool highlight = false, Color? valueColor, VoidCallback? onTap}) {
+  Widget _buildPLRow(
+    String title,
+    double amount, {
+    bool highlight = false,
+    Color? valueColor,
+    VoidCallback? onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -904,7 +1722,9 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
             Text(
               title,
               style: TextStyle(
-                color: highlight ? AppColors.textPrimary : AppColors.textSecondary,
+                color: highlight
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
                 fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
                 fontSize: highlight ? 14 : 13,
               ),
@@ -914,14 +1734,22 @@ class _ReportViewerPageState extends State<ReportViewerPage> with SingleTickerPr
                 Text(
                   _currencyFormat.format(amount),
                   style: TextStyle(
-                    color: valueColor ?? (highlight ? AppColors.textPrimary : AppColors.textSecondary),
+                    color:
+                        valueColor ??
+                        (highlight
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary),
                     fontWeight: FontWeight.bold,
                     fontSize: highlight ? 14 : 13,
                   ),
                 ),
                 if (onTap != null) ...[
                   const SizedBox(width: 6),
-                  const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 16),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.textMuted,
+                    size: 16,
+                  ),
                 ],
               ],
             ),

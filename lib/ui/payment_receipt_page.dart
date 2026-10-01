@@ -16,15 +16,18 @@ class PaymentReceiptPage extends StatefulWidget {
   State<PaymentReceiptPage> createState() => _PaymentReceiptPageState();
 }
 
-class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTickerProviderStateMixin {
+class _PaymentReceiptPageState extends State<PaymentReceiptPage>
+    with SingleTickerProviderStateMixin {
   final Uuid uuid = const Uuid();
   final _formKey = GlobalKey<FormState>();
 
-  String _voucherType = 'Receipt'; // 'Receipt' (from Customer) or 'Payment' (to Supplier)
+  String _voucherType =
+      'Receipt'; // 'Receipt' (from Customer) or 'Payment' (to Supplier)
   String _voucherNumber = '';
   DateTime _voucherDate = DateTime.now();
-  
-  String? _selectedContactLedgerId; // Customer for Receipt, Supplier for Payment
+
+  String?
+  _selectedContactLedgerId; // Customer for Receipt, Supplier for Payment
   String? _selectedCashBankLedgerId; // Bank/Cash account
   String _selectedPaymentMode = 'Cash';
   double _amount = 0.0;
@@ -41,8 +44,14 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
   List<VoucherDetail> _recentVouchers = [];
   bool _isLoadingRecent = true;
   bool _isSaving = false;
+  AppDatabase? _loadedDatabase;
+  int _initialDataGeneration = 0;
+  int _recentVouchersGeneration = 0;
 
-  final NumberFormat _currencyFormat = NumberFormat.currency(symbol: 'Rs. ', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(
+    symbol: 'Rs. ',
+    decimalDigits: 2,
+  );
   final DateFormat _dateFormat = DateFormat('dd-MMM-yyyy');
 
   @override
@@ -61,49 +70,79 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadInitialData();
+    final database = Provider.of<AppDatabase>(context);
+    if (!identical(_loadedDatabase, database)) {
+      _loadedDatabase = database;
+      _loadInitialData();
+    }
   }
 
   Future<void> _loadInitialData() async {
+    final generation = ++_initialDataGeneration;
+    final voucherType = _voucherType;
+    final selectedContactLedgerId = _selectedContactLedgerId;
     final db = Provider.of<AppDatabase>(context, listen: false);
-    
+
     // Load active Contact Ledgers (Receipt = Customer, Payment = Supplier)
-    final contactGroup = _voucherType == 'Receipt' ? 'debtors' : 'creditors';
-    final contactLedgers = await (db.select(db.ledgers)
-      ..where((t) => t.groupId.equals(contactGroup) & (t.isDeleted.equals(false) | t.id.equals(_selectedContactLedgerId ?? ''))))
-      .get();
-    contactLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final contactGroup = voucherType == 'Receipt' ? 'debtors' : 'creditors';
+    final contactLedgers =
+        await (db.select(db.ledgers)..where(
+              (t) =>
+                  t.groupId.equals(contactGroup) &
+                  (t.isDeleted.equals(false) |
+                      t.id.equals(selectedContactLedgerId ?? '')),
+            ))
+            .get();
+    contactLedgers.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
 
     // Load Cash and Bank Ledgers
-    final cashBankLedgers = await (db.select(db.ledgers)
-      ..where((t) => t.groupId.equals('cash_in_hand') | t.groupId.equals('bank_accounts')))
-      .get();
-    cashBankLedgers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final cashBankLedgers =
+        await (db.select(db.ledgers)..where(
+              (t) =>
+                  t.groupId.equals('cash_in_hand') |
+                  t.groupId.equals('bank_accounts'),
+            ))
+            .get();
+    cashBankLedgers.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
 
+    String? generatedVoucherNumber;
     // Generate Voucher number if not editing
     if (_editingVoucherId == null) {
       final vouchersList = await db.select(db.vouchers).get();
-      final prefix = _voucherType == 'Receipt' ? 'RCT' : 'PAY';
+      final prefix = voucherType == 'Receipt' ? 'RCT' : 'PAY';
       final numberPrefix = '$prefix-${DateTime.now().year}-';
       final usedNumbers = vouchersList
-          .where((voucher) => voucher.voucherType == _voucherType)
+          .where((voucher) => voucher.voucherType == voucherType)
           .map((voucher) => voucher.voucherNumber)
           .toSet();
       var nextNumber = 1;
-      while (usedNumbers.contains('$numberPrefix${nextNumber.toString().padLeft(4, '0')}')) {
+      while (usedNumbers.contains(
+        '$numberPrefix${nextNumber.toString().padLeft(4, '0')}',
+      )) {
         nextNumber++;
       }
-      _voucherNumber = '$numberPrefix${nextNumber.toString().padLeft(4, '0')}';
+      generatedVoucherNumber =
+          '$numberPrefix${nextNumber.toString().padLeft(4, '0')}';
     }
 
+    if (!mounted || generation != _initialDataGeneration) return;
     setState(() {
+      if (generatedVoucherNumber != null && _editingVoucherId == null) {
+        _voucherNumber = generatedVoucherNumber;
+      }
       _contactLedgers = contactLedgers;
       _cashBankLedgers = cashBankLedgers;
-      
+
       // Auto select default cash ledger if not set
       if (_cashBankLedgers.isNotEmpty && _selectedCashBankLedgerId == null) {
         final cashMatch = _cashBankLedgers.where((l) => l.id == 'cash');
-        _selectedCashBankLedgerId = cashMatch.isNotEmpty ? cashMatch.first.id : _cashBankLedgers.first.id;
+        _selectedCashBankLedgerId = cashMatch.isNotEmpty
+            ? cashMatch.first.id
+            : _cashBankLedgers.first.id;
       }
     });
 
@@ -111,14 +150,21 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
   }
 
   Future<void> _loadRecentVouchers() async {
+    final generation = ++_recentVouchersGeneration;
     final db = Provider.of<AppDatabase>(context, listen: false);
     final engine = Provider.of<AccountingEngine>(context, listen: false);
 
-    final vouchers = await (db.select(db.vouchers)
-      ..where((t) => t.voucherType.isIn(['Receipt', 'Payment']))
-      ..orderBy([(t) => drift.OrderingTerm(expression: t.date, mode: drift.OrderingMode.desc)])
-      ..limit(30))
-      .get();
+    final vouchers =
+        await (db.select(db.vouchers)
+              ..where((t) => t.voucherType.isIn(['Receipt', 'Payment']))
+              ..orderBy([
+                (t) => drift.OrderingTerm(
+                  expression: t.date,
+                  mode: drift.OrderingMode.desc,
+                ),
+              ])
+              ..limit(30))
+            .get();
 
     List<VoucherDetail> details = [];
     for (final v in vouchers) {
@@ -126,7 +172,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       if (d != null) details.add(d);
     }
 
-    if (mounted) {
+    if (mounted && generation == _recentVouchersGeneration) {
       setState(() {
         _recentVouchers = details;
         _isLoadingRecent = false;
@@ -170,8 +216,12 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         if (e.creditAmount > 0 && amt == 0) amt = e.creditAmount;
       }
       if (detail.voucher.paymentMode == null) {
-        final account = _cashBankLedgers.where((l) => l.id == _selectedCashBankLedgerId).firstOrNull;
-        _selectedPaymentMode = account?.groupId == 'bank_accounts' ? 'Bank Transfer' : 'Cash';
+        final account = _cashBankLedgers
+            .where((l) => l.id == _selectedCashBankLedgerId)
+            .firstOrNull;
+        _selectedPaymentMode = account?.groupId == 'bank_accounts'
+            ? 'Bank Transfer'
+            : 'Cash';
       }
       _amount = amt;
       _amountController.text = amt > 0 ? amt.toStringAsFixed(2) : '';
@@ -200,7 +250,11 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
 
     if (_selectedContactLedgerId == null || _selectedCashBankLedgerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select both the contact and cash/bank accounts.')),
+        const SnackBar(
+          content: Text(
+            'Please select both the contact and cash/bank accounts.',
+          ),
+        ),
       );
       return;
     }
@@ -220,40 +274,48 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       // Money Received from Customer:
       // Debit: Cash/Bank Account (increases asset)
       // Credit: Customer Ledger (reduces debtor balance)
-      entries.add(VoucherEntriesCompanion.insert(
-        id: uuid.v4(),
-        voucherId: '',
-        ledgerId: _selectedCashBankLedgerId!,
-        debitAmount: drift.Value(_amount),
-        creditAmount: const drift.Value(0.0),
-      ));
-      
-      entries.add(VoucherEntriesCompanion.insert(
-        id: uuid.v4(),
-        voucherId: '',
-        ledgerId: _selectedContactLedgerId!,
-        debitAmount: const drift.Value(0.0),
-        creditAmount: drift.Value(_amount),
-      ));
+      entries.add(
+        VoucherEntriesCompanion.insert(
+          id: uuid.v4(),
+          voucherId: '',
+          ledgerId: _selectedCashBankLedgerId!,
+          debitAmount: drift.Value(_amount),
+          creditAmount: const drift.Value(0.0),
+        ),
+      );
+
+      entries.add(
+        VoucherEntriesCompanion.insert(
+          id: uuid.v4(),
+          voucherId: '',
+          ledgerId: _selectedContactLedgerId!,
+          debitAmount: const drift.Value(0.0),
+          creditAmount: drift.Value(_amount),
+        ),
+      );
     } else {
       // Money Paid to Supplier:
       // Debit: Supplier Ledger (reduces creditor balance)
       // Credit: Cash/Bank Account (reduces asset)
-      entries.add(VoucherEntriesCompanion.insert(
-        id: uuid.v4(),
-        voucherId: '',
-        ledgerId: _selectedContactLedgerId!,
-        debitAmount: drift.Value(_amount),
-        creditAmount: const drift.Value(0.0),
-      ));
+      entries.add(
+        VoucherEntriesCompanion.insert(
+          id: uuid.v4(),
+          voucherId: '',
+          ledgerId: _selectedContactLedgerId!,
+          debitAmount: drift.Value(_amount),
+          creditAmount: const drift.Value(0.0),
+        ),
+      );
 
-      entries.add(VoucherEntriesCompanion.insert(
-        id: uuid.v4(),
-        voucherId: '',
-        ledgerId: _selectedCashBankLedgerId!,
-        debitAmount: const drift.Value(0.0),
-        creditAmount: drift.Value(_amount),
-      ));
+      entries.add(
+        VoucherEntriesCompanion.insert(
+          id: uuid.v4(),
+          voucherId: '',
+          ledgerId: _selectedCashBankLedgerId!,
+          debitAmount: const drift.Value(0.0),
+          creditAmount: drift.Value(_amount),
+        ),
+      );
     }
 
     try {
@@ -261,6 +323,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         voucherNumber: _voucherNumber,
         voucherType: _voucherType,
         date: _voucherDate,
+        partyLedgerId: _selectedContactLedgerId,
         narration: _narration,
         referenceNumber: _referenceNumber,
         paymentMode: _selectedPaymentMode,
@@ -273,7 +336,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: AppColors.success,
-            content: Text('$_voucherType voucher $_voucherNumber ${isEdit ? "updated" : "saved"} successfully!'),
+            content: Text(
+              '$_voucherType voucher $_voucherNumber ${isEdit ? "updated" : "saved"} successfully!',
+            ),
           ),
         );
         _cancelEdit();
@@ -281,7 +346,10 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to save voucher: $e')),
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Failed to save voucher: $e'),
+          ),
         );
       }
     } finally {
@@ -294,7 +362,13 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('Cancel ${detail.voucher.voucherType}', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+        title: Text(
+          'Cancel ${detail.voucher.voucherType}',
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: Text(
           'Are you sure you want to cancel ${detail.voucher.voucherType} ${detail.voucher.voucherNumber}?\n\n'
           'This will reverse the financial posting and update the customer/supplier balance without deleting audit history.',
@@ -302,12 +376,18 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         ),
         actions: [
           TextButton(
-            child: const Text('Back', style: TextStyle(color: AppColors.textMuted)),
+            child: const Text(
+              'Back',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
             onPressed: () => Navigator.pop(ctx, false),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
-            child: const Text('Cancel Voucher', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Cancel Voucher',
+              style: TextStyle(color: Colors.white),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
           ),
         ],
@@ -321,14 +401,20 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       await engine.cancelVoucher(detail.voucher.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.warning, content: Text('${detail.voucher.voucherNumber} cancelled.')),
+          SnackBar(
+            backgroundColor: AppColors.warning,
+            content: Text('${detail.voucher.voucherNumber} cancelled.'),
+          ),
         );
         _loadRecentVouchers();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to cancel: $e')),
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Failed to cancel: $e'),
+          ),
         );
       }
     }
@@ -339,7 +425,13 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('Delete ${detail.voucher.voucherType} Permanently', style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
+        title: Text(
+          'Delete ${detail.voucher.voucherType} Permanently',
+          style: const TextStyle(
+            color: AppColors.error,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: Text(
           'Are you sure you want to PERMANENTLY DELETE ${detail.voucher.voucherType} ${detail.voucher.voucherNumber}?\n\n'
           'This will completely remove the entry and its ledger postings from the database.',
@@ -347,12 +439,18 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
         ),
         actions: [
           TextButton(
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
             onPressed: () => Navigator.pop(ctx, false),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text('Delete Permanently', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Delete Permanently',
+              style: TextStyle(color: Colors.white),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
           ),
         ],
@@ -366,7 +464,12 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       await engine.deleteVoucher(detail.voucher.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text('${detail.voucher.voucherNumber} deleted permanently.')),
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text(
+              '${detail.voucher.voucherNumber} deleted permanently.',
+            ),
+          ),
         );
         if (_editingVoucherId == detail.voucher.id) {
           _cancelEdit();
@@ -377,7 +480,10 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text('Failed to delete: $e')),
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Failed to delete: $e'),
+          ),
         );
       }
     }
@@ -390,8 +496,11 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
     double amt = 0.0;
     var mode = detail.voucher.paymentMode ?? 'Cash';
     for (final e in detail.entries) {
-      if (detail.voucher.paymentMode == null && e.ledgerId != detail.contactLedger.id) {
-        final cashBank = _cashBankLedgers.where((l) => l.id == e.ledgerId).firstOrNull;
+      if (detail.voucher.paymentMode == null &&
+          e.ledgerId != detail.contactLedger.id) {
+        final cashBank = _cashBankLedgers
+            .where((l) => l.id == e.ledgerId)
+            .firstOrNull;
         if (cashBank != null && cashBank.groupId == 'bank_accounts') {
           mode = 'Bank Transfer / Online';
         }
@@ -416,14 +525,30 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          _editingVoucherId != null ? 'Edit $_voucherType Voucher' : 'Record $_voucherType / Payment',
-          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
+          _editingVoucherId != null
+              ? 'Edit $_voucherType Voucher'
+              : 'Record $_voucherType / Payment',
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         actions: [
           if (_editingVoucherId != null)
             TextButton.icon(
-              icon: const Icon(Icons.close_rounded, color: AppColors.textMuted, size: 18),
-              label: const Text('Cancel Edit', style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.bold)),
+              icon: const Icon(
+                Icons.close_rounded,
+                color: AppColors.textMuted,
+                size: 18,
+              ),
+              label: const Text(
+                'Cancel Edit',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               onPressed: _cancelEdit,
             ),
           const SizedBox(width: 16),
@@ -452,15 +577,38 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            _editingVoucherId != null ? 'Editing Voucher: $_voucherNumber' : 'New Transaction',
-                            style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                          Expanded(
+                            child: Text(
+                              _editingVoucherId != null
+                                  ? 'Editing Voucher: $_voucherNumber'
+                                  : 'New Transaction',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                           if (_editingVoucherId != null)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: AppColors.warningBg, borderRadius: BorderRadius.circular(4)),
-                              child: const Text('Editing', style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.bold, fontSize: 11)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.warningBg,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Editing',
+                                style: TextStyle(
+                                  color: AppColors.warning,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ),
                         ],
                       ),
@@ -469,14 +617,37 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       // Voucher Type Selector
                       DropdownButtonFormField<String>(
                         value: _voucherType,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                        decoration: const InputDecoration(labelText: 'Transaction Mode', isDense: true),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Transaction Mode',
+                          isDense: true,
+                        ),
                         items: const [
-                          DropdownMenuItem(value: 'Receipt', child: Text('Receipt (Money Received from Customer)')),
-                          DropdownMenuItem(value: 'Payment', child: Text('Payment (Money Paid to Supplier)')),
+                          DropdownMenuItem(
+                            value: 'Receipt',
+                            child: Text(
+                              'Receipt (Money Received from Customer)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Payment',
+                            child: Text(
+                              'Payment (Money Paid to Supplier)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
-                        onChanged: _editingVoucherId != null ? null : _onVoucherTypeChanged,
+                        onChanged: _editingVoucherId != null
+                            ? null
+                            : _onVoucherTypeChanged,
                       ),
                       const SizedBox(height: 14),
 
@@ -487,8 +658,14 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                             child: TextFormField(
                               key: ValueKey(_voucherNumber),
                               initialValue: _voucherNumber,
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                              decoration: const InputDecoration(labelText: 'Voucher Number', isDense: true),
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'Voucher Number',
+                                isDense: true,
+                              ),
                               onChanged: (val) => _voucherNumber = val,
                             ),
                           ),
@@ -497,14 +674,22 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                           Expanded(
                             child: TextFormField(
                               readOnly: true,
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                              key: ValueKey(_voucherDate),
+                              initialValue: DateFormat(
+                                'dd-MMM-yyyy hh:mm a',
+                              ).format(_voucherDate),
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                              ),
                               decoration: const InputDecoration(
                                 labelText: 'Posting Date',
-                                suffixIcon: Icon(Icons.calendar_today_rounded, size: 16, color: AppColors.textSecondary),
+                                suffixIcon: Icon(
+                                  Icons.calendar_today_rounded,
+                                  size: 16,
+                                  color: AppColors.textSecondary,
+                                ),
                                 isDense: true,
-                              ),
-                              controller: TextEditingController(
-                                text: DateFormat('dd-MMM-yyyy hh:mm a').format(_voucherDate),
                               ),
                               onTap: () async {
                                 final picked = await showDatePicker(
@@ -536,45 +721,85 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       // Cash/Bank account to use
                       DropdownButtonFormField<String>(
                         value: _selectedCashBankLedgerId,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                        decoration: const InputDecoration(labelText: 'Deposit to / Pay from Account', isDense: true),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Deposit to / Pay from Account',
+                          isDense: true,
+                        ),
                         items: _cashBankLedgers.map((l) {
-                          return DropdownMenuItem(value: l.id, child: Text(l.name));
+                          return DropdownMenuItem(
+                            value: l.id,
+                            child: Text(
+                              l.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
                         }).toList(),
-                        onChanged: (val) => setState(() => _selectedCashBankLedgerId = val),
+                        onChanged: (val) =>
+                            setState(() => _selectedCashBankLedgerId = val),
                       ),
                       const SizedBox(height: 14),
 
                       DropdownButtonFormField<String>(
                         value: _selectedPaymentMode,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                        decoration: const InputDecoration(labelText: 'Payment Method', isDense: true),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Method',
+                          isDense: true,
+                        ),
                         items: const [
                           DropdownMenuItem(value: 'Cash', child: Text('Cash')),
                           DropdownMenuItem(value: 'UPI', child: Text('UPI')),
-                          DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
+                          DropdownMenuItem(
+                            value: 'Cheque',
+                            child: Text('Cheque'),
+                          ),
                           DropdownMenuItem(value: 'NEFT', child: Text('NEFT')),
                           DropdownMenuItem(value: 'RTGS', child: Text('RTGS')),
                           DropdownMenuItem(value: 'IMPS', child: Text('IMPS')),
-                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                          DropdownMenuItem(
+                            value: 'Bank Transfer',
+                            child: Text('Bank Transfer'),
+                          ),
                           DropdownMenuItem(value: 'Card', child: Text('Card')),
-                          DropdownMenuItem(value: 'Other', child: Text('Other')),
+                          DropdownMenuItem(
+                            value: 'Other',
+                            child: Text('Other'),
+                          ),
                         ],
-                        onChanged: _isSaving ? null : (value) {
-                          if (value != null) setState(() => _selectedPaymentMode = value);
-                        },
+                        onChanged: _isSaving
+                            ? null
+                            : (value) {
+                                if (value != null)
+                                  setState(() => _selectedPaymentMode = value);
+                              },
                       ),
                       const SizedBox(height: 14),
 
                       // Customer / Supplier selector
                       DropdownButtonFormField<String>(
                         value: _selectedContactLedgerId,
+                        isExpanded: true,
                         dropdownColor: AppColors.surface,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
                         decoration: InputDecoration(
-                          labelText: _voucherType == 'Receipt' ? 'Customer (Sundry Debtor)' : 'Supplier (Sundry Creditor)',
+                          labelText: _voucherType == 'Receipt'
+                              ? 'Customer (Sundry Debtor)'
+                              : 'Supplier (Sundry Creditor)',
                           isDense: true,
                         ),
                         items: _contactLedgers.map((l) {
@@ -582,39 +807,59 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                             value: l.id,
                             child: Text(
                               l.name + (l.isDeleted ? ' (Deactivated)' : ''),
-                              style: TextStyle(color: l.isDeleted ? AppColors.textMuted : AppColors.textPrimary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: l.isDeleted
+                                    ? AppColors.textMuted
+                                    : AppColors.textPrimary,
+                              ),
                             ),
                           );
                         }).toList(),
-                        onChanged: (val) => setState(() => _selectedContactLedgerId = val),
+                        onChanged: (val) =>
+                            setState(() => _selectedContactLedgerId = val),
                       ),
                       const SizedBox(height: 14),
 
                       // Amount
                       TextFormField(
                         controller: _amountController,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(
                           labelText: 'Amount (Rs.)',
                           hintText: '0.00',
                           isDense: true,
                         ),
                         validator: (val) {
-                          if (val == null || val.trim().isEmpty) return 'Please enter an amount';
+                          if (val == null || val.trim().isEmpty)
+                            return 'Please enter an amount';
                           final numVal = double.tryParse(val);
-                          if (numVal == null || numVal <= 0) return 'Please enter a positive amount';
+                          if (numVal == null || numVal <= 0)
+                            return 'Please enter a positive amount';
                           return null;
                         },
-                        onChanged: (val) => _amount = double.tryParse(val) ?? 0.0,
-                        onSaved: (val) => _amount = double.tryParse(val ?? '') ?? 0.0,
+                        onChanged: (val) =>
+                            _amount = double.tryParse(val) ?? 0.0,
+                        onSaved: (val) =>
+                            _amount = double.tryParse(val ?? '') ?? 0.0,
                       ),
                       const SizedBox(height: 14),
 
                       // Reference Number
                       TextFormField(
                         controller: _refController,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
                         decoration: const InputDecoration(
                           labelText: 'Cheque / Ref No. / Transaction ID',
                           hintText: 'e.g. UTR123456 / CHQ 00456',
@@ -627,7 +872,10 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       // Narration / Remarks
                       TextFormField(
                         controller: _narrationController,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                        ),
                         maxLines: 2,
                         decoration: const InputDecoration(
                           labelText: 'Narration / Remarks',
@@ -646,12 +894,22 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                             backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          icon: const Icon(Icons.check_circle_rounded, size: 18),
+                          icon: const Icon(
+                            Icons.check_circle_rounded,
+                            size: 18,
+                          ),
                           label: Text(
-                            _editingVoucherId != null ? 'Update $_voucherType Entry' : 'Post $_voucherType Entry',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            _editingVoucherId != null
+                                ? 'Update $_voucherType Entry'
+                                : 'Post $_voucherType Entry',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                           onPressed: _isSaving ? null : _submitVoucher,
                         ),
@@ -682,12 +940,24 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Recent Payments & Receipts',
-                            style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                          const Expanded(
+                            child: Text(
+                              'Recent Payments & Receipts',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.refresh_rounded, size: 18, color: AppColors.textSecondary),
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              size: 18,
+                              color: AppColors.textSecondary,
+                            ),
                             tooltip: 'Refresh',
                             onPressed: _loadRecentVouchers,
                           ),
@@ -699,84 +969,140 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage> with SingleTick
                       child: _isLoadingRecent
                           ? const Center(child: CircularProgressIndicator())
                           : _recentVouchers.isEmpty
-                              ? const Center(
-                                  child: Text('No payment or receipt vouchers found.', style: TextStyle(color: AppColors.textMuted)),
-                                )
-                              : ListView.separated(
-                                  itemCount: _recentVouchers.length,
-                                  separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
-                                  itemBuilder: (context, index) {
-                                    final d = _recentVouchers[index];
-                                    final isReceipt = d.voucher.voucherType == 'Receipt';
-                                    final isCancelled = d.voucher.status == 'CANCELLED';
+                          ? const Center(
+                              child: Text(
+                                'No payment or receipt vouchers found.',
+                                style: TextStyle(color: AppColors.textMuted),
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: _recentVouchers.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(
+                                    height: 1,
+                                    color: AppColors.border,
+                                  ),
+                              itemBuilder: (context, index) {
+                                final d = _recentVouchers[index];
+                                final isReceipt =
+                                    d.voucher.voucherType == 'Receipt';
+                                final isCancelled =
+                                    d.voucher.status == 'CANCELLED';
 
-                                    double amt = 0.0;
-                                    for (final e in d.entries) {
-                                      if (e.debitAmount > 0) amt = e.debitAmount;
-                                    }
+                                double amt = 0.0;
+                                for (final e in d.entries) {
+                                  if (e.debitAmount > 0) amt = e.debitAmount;
+                                }
 
-                                    return ListTile(
-                                      dense: true,
-                                      leading: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: isCancelled
-                                              ? AppColors.surfaceSecondary
-                                              : (isReceipt ? AppColors.successBg : AppColors.infoBg),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          isCancelled ? 'CANCELLED' : d.voucher.voucherType.toUpperCase(),
-                                          style: TextStyle(
-                                            color: isCancelled
-                                                ? AppColors.textMuted
-                                                : (isReceipt ? AppColors.success : AppColors.info),
+                                return ListTile(
+                                  dense: true,
+                                  leading: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isCancelled
+                                          ? AppColors.surfaceSecondary
+                                          : (isReceipt
+                                                ? AppColors.successBg
+                                                : AppColors.infoBg),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      isCancelled
+                                          ? 'CANCELLED'
+                                          : d.voucher.voucherType.toUpperCase(),
+                                      style: TextStyle(
+                                        color: isCancelled
+                                            ? AppColors.textMuted
+                                            : (isReceipt
+                                                  ? AppColors.success
+                                                  : AppColors.info),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: d.contactLedger.name,
+                                          style: const TextStyle(
+                                            color: AppColors.textPrimary,
                                             fontWeight: FontWeight.bold,
-                                            fontSize: 10,
+                                            fontSize: 13,
                                           ),
                                         ),
-                                      ),
-                                      title: Row(
-                                        children: [
-                                          Text(d.contactLedger.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
-                                          const SizedBox(width: 8),
-                                          Text('(${d.voucher.voucherNumber})', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                                        ],
-                                      ),
-                                      subtitle: Text(
-                                        '${_dateFormat.format(d.voucher.date)} • ${_currencyFormat.format(amt)}${d.voucher.referenceNumber != null && d.voucher.referenceNumber!.isNotEmpty ? " • Ref: ${d.voucher.referenceNumber}" : ""}',
-                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                      ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.print_rounded, size: 18, color: AppColors.primary),
-                                            tooltip: 'Print / Export PDF',
-                                            onPressed: () => _printReceiptPdf(d),
+                                        TextSpan(
+                                          text: ' (${d.voucher.voucherNumber})',
+                                          style: const TextStyle(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 12,
                                           ),
-                                          if (!isCancelled) ...[
-                                            IconButton(
-                                              icon: const Icon(Icons.edit_rounded, size: 18, color: AppColors.textSecondary),
-                                              tooltip: 'Edit Voucher',
-                                              onPressed: () => _editVoucher(d),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.block_rounded, size: 18, color: AppColors.warning),
-                                              tooltip: 'Cancel Voucher',
-                                              onPressed: () => _cancelVoucher(d),
-                                            ),
-                                          ],
-                                          IconButton(
-                                            icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
-                                            tooltip: 'Delete Voucher',
-                                            onPressed: () => _deleteVoucher(d),
-                                          ),
-                                        ],
+                                        ),
+                                      ],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
+                                  ),
+                                  subtitle: Text(
+                                    '${_dateFormat.format(d.voucher.date)} • ${_currencyFormat.format(amt)}${d.voucher.referenceNumber != null && d.voucher.referenceNumber!.isNotEmpty ? " • Ref: ${d.voucher.referenceNumber}" : ""}',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.print_rounded,
+                                          size: 18,
+                                          color: AppColors.primary,
+                                        ),
+                                        tooltip: 'Print / Export PDF',
+                                        onPressed: () => _printReceiptPdf(d),
                                       ),
-                                    );
-                                  },
-                                ),
+                                      if (!isCancelled) ...[
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.edit_rounded,
+                                            size: 18,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                          tooltip: 'Edit Voucher',
+                                          onPressed: () => _editVoucher(d),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.block_rounded,
+                                            size: 18,
+                                            color: AppColors.warning,
+                                          ),
+                                          tooltip: 'Cancel Voucher',
+                                          onPressed: () => _cancelVoucher(d),
+                                        ),
+                                      ],
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: AppColors.error,
+                                        ),
+                                        tooltip: 'Delete Voucher',
+                                        onPressed: () => _deleteVoucher(d),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),

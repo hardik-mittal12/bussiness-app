@@ -23,18 +23,26 @@ String decodeXmlBytes(List<int> bytes) {
   }
 
   var content = bytes;
-  if (bytes.length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
     content = bytes.sublist(3);
-  } else if (bytes.length >= 4 && bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0xFE && bytes[3] == 0xFF) {
-    throw const FormatException('UTF-32 XML is not supported. Save the file as UTF-8 or UTF-16.');
+  } else if (bytes.length >= 4 &&
+      bytes[0] == 0 &&
+      bytes[1] == 0 &&
+      bytes[2] == 0xFE &&
+      bytes[3] == 0xFF) {
+    throw const FormatException(
+      'UTF-32 XML is not supported. Save the file as UTF-8 or UTF-16.',
+    );
   }
 
   final declaration = latin1.decode(content.take(256).toList());
-  final encoding = RegExp(r'''<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']''', caseSensitive: false)
-      .firstMatch(declaration)
-      ?.group(1)
-      ?.toLowerCase()
-      .replaceAll('_', '-');
+  final encoding = RegExp(
+    r'''<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  ).firstMatch(declaration)?.group(1)?.toLowerCase().replaceAll('_', '-');
 
   if (encoding == 'utf-16le' || encoding == 'utf-16be') {
     return _decodeUtf16(content, littleEndian: encoding == 'utf-16le');
@@ -45,10 +53,16 @@ String decodeXmlBytes(List<int> bytes) {
   if (encoding == 'windows-1252' || encoding == 'cp1252') {
     return _decodeWindows1252(content);
   }
-  if (encoding == 'iso-8859-1' || encoding == 'latin1' || encoding == 'latin-1') {
+  if (encoding == 'iso-8859-1' ||
+      encoding == 'latin1' ||
+      encoding == 'latin-1') {
     return latin1.decode(content);
   }
-  if (encoding != null && encoding != 'utf-8' && encoding != 'utf8' && encoding != 'us-ascii' && encoding != 'ascii') {
+  if (encoding != null &&
+      encoding != 'utf-8' &&
+      encoding != 'utf8' &&
+      encoding != 'us-ascii' &&
+      encoding != 'ascii') {
     throw FormatException('Unsupported XML encoding: $encoding');
   }
 
@@ -65,40 +79,53 @@ String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
   }
   final codeUnits = <int>[];
   for (var index = 0; index < bytes.length; index += 2) {
-    codeUnits.add(littleEndian
-        ? bytes[index] | (bytes[index + 1] << 8)
-        : (bytes[index] << 8) | bytes[index + 1]);
+    codeUnits.add(
+      littleEndian
+          ? bytes[index] | (bytes[index + 1] << 8)
+          : (bytes[index] << 8) | bytes[index + 1],
+    );
   }
   return String.fromCharCodes(codeUnits);
 }
 
 String _decodeWindows1252(List<int> bytes) {
   const extendedCharacters = <int, int>{
-    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E,
-    0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6,
-    0x89: 0x2030, 0x8A: 0x0160, 0x8B: 0x2039, 0x8C: 0x0152,
-    0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201C,
-    0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,
-    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A,
-    0x9C: 0x0153, 0x9E: 0x017E, 0x9F: 0x0178,
+    0x80: 0x20AC,
+    0x82: 0x201A,
+    0x83: 0x0192,
+    0x84: 0x201E,
+    0x85: 0x2026,
+    0x86: 0x2020,
+    0x87: 0x2021,
+    0x88: 0x02C6,
+    0x89: 0x2030,
+    0x8A: 0x0160,
+    0x8B: 0x2039,
+    0x8C: 0x0152,
+    0x8E: 0x017D,
+    0x91: 0x2018,
+    0x92: 0x2019,
+    0x93: 0x201C,
+    0x94: 0x201D,
+    0x95: 0x2022,
+    0x96: 0x2013,
+    0x97: 0x2014,
+    0x98: 0x02DC,
+    0x99: 0x2122,
+    0x9A: 0x0161,
+    0x9B: 0x203A,
+    0x9C: 0x0153,
+    0x9E: 0x017E,
+    0x9F: 0x0178,
   };
-  return String.fromCharCodes(bytes.map((byte) => extendedCharacters[byte] ?? byte));
+  return String.fromCharCodes(
+    bytes.map((byte) => extendedCharacters[byte] ?? byte),
+  );
 }
 
-enum ExportDateRange {
-  allTime,
-  today,
-  thisWeek,
-  thisMonth,
-  thisYear,
-  custom,
-}
+enum ExportDateRange { allTime, today, thisWeek, thisMonth, thisYear, custom }
 
-enum DuplicateHandling {
-  skip,
-  update,
-  createWithSuffix,
-}
+enum DuplicateHandling { skip, update, createWithSuffix }
 
 class ImportResult {
   final int createdCount;
@@ -142,16 +169,27 @@ class DataExchangeService {
   }
 
   // Helper for Date filtering
-  bool isDateInRange(DateTime date, ExportDateRange range, {DateTime? customStart, DateTime? customEnd}) {
+  bool isDateInRange(
+    DateTime date,
+    ExportDateRange range, {
+    DateTime? customStart,
+    DateTime? customEnd,
+  }) {
     final now = DateTime.now();
     switch (range) {
       case ExportDateRange.allTime:
         return true;
       case ExportDateRange.today:
-        return date.year == now.year && date.month == now.month && date.day == now.day;
+        return date.year == now.year &&
+            date.month == now.month &&
+            date.day == now.day;
       case ExportDateRange.thisWeek:
         final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-        final startZero = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day);
+        final startZero = DateTime(
+          startOfWeek.year,
+          startOfWeek.month,
+          startOfWeek.day,
+        );
         return date.isAfter(startZero.subtract(const Duration(seconds: 1)));
       case ExportDateRange.thisMonth:
         return date.year == now.year && date.month == now.month;
@@ -160,7 +198,9 @@ class DataExchangeService {
         return FinancialYearService.getFinancialYear(date) == currentFy;
       case ExportDateRange.custom:
         if (customStart != null && date.isBefore(customStart)) return false;
-        if (customEnd != null && date.isAfter(customEnd.add(const Duration(days: 1)))) return false;
+        if (customEnd != null &&
+            date.isAfter(customEnd.add(const Duration(days: 1))))
+          return false;
         return true;
     }
   }
@@ -170,9 +210,22 @@ class DataExchangeService {
   // ==========================================
 
   Future<String> exportCustomersCsv({String delimiter = ','}) async {
-    final ledgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors') & t.isDeleted.equals(false))).get();
+    final ledgers =
+        await (db.select(db.ledgers)..where(
+              (t) => t.groupId.equals('debtors') & t.isDeleted.equals(false),
+            ))
+            .get();
     final rows = <List<dynamic>>[
-      ['ID', 'Name', 'Phone', 'Address', 'Email', 'GSTIN_TaxNumber', 'OpeningBalance', 'CurrentBalance']
+      [
+        'ID',
+        'Name',
+        'Phone',
+        'Address',
+        'Email',
+        'GSTIN_TaxNumber',
+        'OpeningBalance',
+        'CurrentBalance',
+      ],
     ];
 
     for (final l in ledgers) {
@@ -190,7 +243,12 @@ class DataExchangeService {
     }
 
     return delimiter == '\t'
-        ? rows.map((r) => r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t')).join('\n')
+        ? rows
+              .map(
+                (r) =>
+                    r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t'),
+              )
+              .join('\n')
         : const ListToCsvConverter().convert(rows);
   }
 
@@ -200,7 +258,17 @@ class DataExchangeService {
     final itemMap = {for (var i in dbItems) i.id: i};
 
     final rows = <List<dynamic>>[
-      ['ID', 'Name', 'SKU', 'UnitOfMeasure', 'CurrentQuantity', 'AvgRate', 'TotalValue', 'SalesRate', 'PurchaseRate']
+      [
+        'ID',
+        'Name',
+        'SKU',
+        'UnitOfMeasure',
+        'CurrentQuantity',
+        'AvgRate',
+        'TotalValue',
+        'SalesRate',
+        'PurchaseRate',
+      ],
     ];
 
     for (final s in stockItems) {
@@ -219,7 +287,12 @@ class DataExchangeService {
     }
 
     return delimiter == '\t'
-        ? rows.map((r) => r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t')).join('\n')
+        ? rows
+              .map(
+                (r) =>
+                    r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t'),
+              )
+              .join('\n')
         : const ListToCsvConverter().convert(rows);
   }
 
@@ -229,15 +302,39 @@ class DataExchangeService {
     DateTime? customEnd,
     String delimiter = ',',
   }) async {
-    final allVouchers = await (db.select(db.vouchers)
-          ..where((t) => t.voucherType.equals('Sales') | t.voucherType.equals('Purchase'))
-          ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
-        .get();
+    final allVouchers =
+        await (db.select(db.vouchers)
+              ..where(
+                (t) =>
+                    t.voucherType.equals('Sales') |
+                    t.voucherType.equals('Purchase'),
+              )
+              ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
+            .get();
 
-    final filtered = allVouchers.where((v) => isDateInRange(v.date, range, customStart: customStart, customEnd: customEnd)).toList();
+    final filtered = allVouchers
+        .where(
+          (v) => isDateInRange(
+            v.date,
+            range,
+            customStart: customStart,
+            customEnd: customEnd,
+          ),
+        )
+        .toList();
 
     final rows = <List<dynamic>>[
-      ['VoucherNumber', 'VoucherType', 'FinancialYear', 'Date', 'Party', 'Discount', 'Status', 'Narration', 'GrandTotal']
+      [
+        'VoucherNumber',
+        'VoucherType',
+        'FinancialYear',
+        'Date',
+        'Party',
+        'Discount',
+        'Status',
+        'Narration',
+        'GrandTotal',
+      ],
     ];
 
     final dateFormat = DateFormat('yyyy-MM-dd HH:mm');
@@ -268,7 +365,12 @@ class DataExchangeService {
     }
 
     return delimiter == '\t'
-        ? rows.map((r) => r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t')).join('\n')
+        ? rows
+              .map(
+                (r) =>
+                    r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t'),
+              )
+              .join('\n')
         : const ListToCsvConverter().convert(rows);
   }
 
@@ -278,15 +380,37 @@ class DataExchangeService {
     DateTime? customEnd,
     String delimiter = ',',
   }) async {
-    final allVouchers = await (db.select(db.vouchers)
-          ..where((t) => t.voucherType.equals('Sales') | t.voucherType.equals('Purchase'))
-          ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
-        .get();
+    final allVouchers =
+        await (db.select(db.vouchers)
+              ..where(
+                (t) =>
+                    t.voucherType.equals('Sales') |
+                    t.voucherType.equals('Purchase'),
+              )
+              ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
+            .get();
 
-    final filtered = allVouchers.where((v) => isDateInRange(v.date, range, customStart: customStart, customEnd: customEnd)).toList();
+    final filtered = allVouchers
+        .where(
+          (v) => isDateInRange(
+            v.date,
+            range,
+            customStart: customStart,
+            customEnd: customEnd,
+          ),
+        )
+        .toList();
 
     final rows = <List<dynamic>>[
-      ['VoucherNumber', 'Date', 'ItemName', 'Quantity', 'Rate', 'Amount', 'IsReplacement']
+      [
+        'VoucherNumber',
+        'Date',
+        'ItemName',
+        'Quantity',
+        'Rate',
+        'Amount',
+        'IsReplacement',
+      ],
     ];
 
     final dateFormat = DateFormat('yyyy-MM-dd');
@@ -295,7 +419,9 @@ class DataExchangeService {
       final detail = await engine.getVoucherDetail(v.id);
       if (detail != null) {
         for (final st in detail.stockTransactions) {
-          final amt = st.tx.isReplacement ? 0.0 : (st.tx.quantity.abs() * st.tx.rate);
+          final amt = st.tx.isReplacement
+              ? 0.0
+              : (st.tx.quantity.abs() * st.tx.rate);
           rows.add([
             v.voucherNumber,
             dateFormat.format(v.date),
@@ -310,7 +436,12 @@ class DataExchangeService {
     }
 
     return delimiter == '\t'
-        ? rows.map((r) => r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t')).join('\n')
+        ? rows
+              .map(
+                (r) =>
+                    r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t'),
+              )
+              .join('\n')
         : const ListToCsvConverter().convert(rows);
   }
 
@@ -320,15 +451,38 @@ class DataExchangeService {
     DateTime? customEnd,
     String delimiter = ',',
   }) async {
-    final vouchers = await (db.select(db.vouchers)
-          ..where((t) => t.voucherType.equals('Receipt') | t.voucherType.equals('Payment'))
-          ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
-        .get();
+    final vouchers =
+        await (db.select(db.vouchers)
+              ..where(
+                (t) =>
+                    t.voucherType.equals('Receipt') |
+                    t.voucherType.equals('Payment'),
+              )
+              ..orderBy([(t) => drift.OrderingTerm.desc(t.date)]))
+            .get();
 
-    final filtered = vouchers.where((v) => isDateInRange(v.date, range, customStart: customStart, customEnd: customEnd)).toList();
+    final filtered = vouchers
+        .where(
+          (v) => isDateInRange(
+            v.date,
+            range,
+            customStart: customStart,
+            customEnd: customEnd,
+          ),
+        )
+        .toList();
 
     final rows = <List<dynamic>>[
-      ['VoucherNumber', 'VoucherType', 'FinancialYear', 'Date', 'Party', 'Amount', 'Status', 'Narration']
+      [
+        'VoucherNumber',
+        'VoucherType',
+        'FinancialYear',
+        'Date',
+        'Party',
+        'Amount',
+        'Status',
+        'Narration',
+      ],
     ];
 
     final dateFormat = DateFormat('yyyy-MM-dd HH:mm');
@@ -358,7 +512,12 @@ class DataExchangeService {
     }
 
     return delimiter == '\t'
-        ? rows.map((r) => r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t')).join('\n')
+        ? rows
+              .map(
+                (r) =>
+                    r.map((c) => c.toString().replaceAll('\t', ' ')).join('\t'),
+              )
+              .join('\n')
         : const ListToCsvConverter().convert(rows);
   }
 
@@ -382,7 +541,11 @@ class DataExchangeService {
       TextCellValue('Current Balance'),
     ]);
 
-    final ledgers = await (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors') & t.isDeleted.equals(false))).get();
+    final ledgers =
+        await (db.select(db.ledgers)..where(
+              (t) => t.groupId.equals('debtors') & t.isDeleted.equals(false),
+            ))
+            .get();
     for (final l in ledgers) {
       final bal = await engine.getLedgerBalance(l.id);
       custSheet.appendRow([
@@ -447,87 +610,189 @@ class DataExchangeService {
     DateTime? customEnd,
   }) async {
     final profile = await profileService.getProfile();
-    final ledgers = await (db.select(db.ledgers)..where((t) => t.isDeleted.equals(false))).get();
+    final ledgers = await (db.select(
+      db.ledgers,
+    )..where((t) => t.isDeleted.equals(false))).get();
     final stockItems = await db.select(db.stockItems).get();
 
-    final allVouchers = await (db.select(db.vouchers)..orderBy([(t) => drift.OrderingTerm.asc(t.date)])).get();
-    final filteredVouchers = allVouchers.where((v) => isDateInRange(v.date, range, customStart: customStart, customEnd: customEnd)).toList();
+    final allVouchers = await (db.select(
+      db.vouchers,
+    )..orderBy([(t) => drift.OrderingTerm.asc(t.date)])).get();
+    final filteredVouchers = allVouchers
+        .where(
+          (v) => isDateInRange(
+            v.date,
+            range,
+            customStart: customStart,
+            customEnd: customEnd,
+          ),
+        )
+        .toList();
 
     final builder = xml.XmlBuilder();
     builder.processing('xml', 'version="1.0" encoding="utf-8"');
-    builder.element('ENVELOPE', nest: () {
-      builder.element('HEADER', nest: () {
-        builder.element('TALLYREQUEST', nest: 'Import Data');
-      });
-      builder.element('BODY', nest: () {
-        builder.element('IMPORTDATA', nest: () {
-          builder.element('REQUESTDESC', nest: () {
-            builder.element('REPORTNAME', nest: 'All Masters');
-            builder.element('STATICVARIABLES', nest: () {
-              builder.element('SVCURRENTCOMPANY', nest: profile.companyName);
-            });
-          });
-          builder.element('REQUESTDATA', nest: () {
-            // 1. Export Ledgers
-            for (final l in ledgers) {
-              final tallyGroup = l.groupId == 'debtors'
-                  ? 'Sundry Debtors'
-                  : (l.groupId == 'creditors'
-                      ? 'Sundry Creditors'
-                      : (l.groupId == 'sales_accounts'
-                          ? 'Sales Accounts'
-                          : (l.groupId == 'purchase_accounts'
-                              ? 'Purchase Accounts'
-                              : (l.groupId == 'cash_in_hand'
-                                  ? 'Cash-in-Hand'
-                                  : (l.groupId == 'bank_accounts' ? 'Bank Accounts' : 'Duties & Taxes')))));
+    builder.element(
+      'ENVELOPE',
+      nest: () {
+        builder.element(
+          'HEADER',
+          nest: () {
+            builder.element('TALLYREQUEST', nest: 'Import Data');
+          },
+        );
+        builder.element(
+          'BODY',
+          nest: () {
+            builder.element(
+              'IMPORTDATA',
+              nest: () {
+                builder.element(
+                  'REQUESTDESC',
+                  nest: () {
+                    builder.element('REPORTNAME', nest: 'All Masters');
+                    builder.element(
+                      'STATICVARIABLES',
+                      nest: () {
+                        builder.element(
+                          'SVCURRENTCOMPANY',
+                          nest: profile.companyName,
+                        );
+                      },
+                    );
+                  },
+                );
+                builder.element(
+                  'REQUESTDATA',
+                  nest: () {
+                    // 1. Export Ledgers
+                    for (final l in ledgers) {
+                      final tallyGroup = l.groupId == 'debtors'
+                          ? 'Sundry Debtors'
+                          : (l.groupId == 'creditors'
+                                ? 'Sundry Creditors'
+                                : (l.groupId == 'sales_accounts'
+                                      ? 'Sales Accounts'
+                                      : (l.groupId == 'purchase_accounts'
+                                            ? 'Purchase Accounts'
+                                            : (l.groupId == 'cash_in_hand'
+                                                  ? 'Cash-in-Hand'
+                                                  : (l.groupId ==
+                                                            'bank_accounts'
+                                                        ? 'Bank Accounts'
+                                                        : 'Duties & Taxes')))));
 
-              builder.element('TALLYMESSAGE', attributes: {'xmlns:UDF': 'TallyUDF'}, nest: () {
-                builder.element('LEDGER', attributes: {'NAME': l.name, 'ACTION': 'Create'}, nest: () {
-                  builder.element('NAME', nest: l.name);
-                  builder.element('PARENT', nest: tallyGroup);
-                  builder.element('OPENINGBALANCE', nest: l.openingBalance.toStringAsFixed(2));
-                  if (l.address != null) builder.element('ADDRESS', nest: l.address!);
-                  if (l.phone != null) builder.element('LEDGERPHONE', nest: l.phone!);
-                  if (l.taxNumber != null) builder.element('PARTYGSTIN', nest: l.taxNumber!);
-                });
-              });
-            }
+                      builder.element(
+                        'TALLYMESSAGE',
+                        attributes: {'xmlns:UDF': 'TallyUDF'},
+                        nest: () {
+                          builder.element(
+                            'LEDGER',
+                            attributes: {'NAME': l.name, 'ACTION': 'Create'},
+                            nest: () {
+                              builder.element('NAME', nest: l.name);
+                              builder.element('PARENT', nest: tallyGroup);
+                              builder.element(
+                                'OPENINGBALANCE',
+                                nest: l.openingBalance.toStringAsFixed(2),
+                              );
+                              if (l.address != null)
+                                builder.element('ADDRESS', nest: l.address!);
+                              if (l.phone != null)
+                                builder.element('LEDGERPHONE', nest: l.phone!);
+                              if (l.taxNumber != null)
+                                builder.element(
+                                  'PARTYGSTIN',
+                                  nest: l.taxNumber!,
+                                );
+                            },
+                          );
+                        },
+                      );
+                    }
 
-            // 2. Export Stock Items
-            for (final s in stockItems) {
-              builder.element('TALLYMESSAGE', attributes: {'xmlns:UDF': 'TallyUDF'}, nest: () {
-                builder.element('STOCKITEM', attributes: {'NAME': s.name, 'ACTION': 'Create'}, nest: () {
-                  builder.element('NAME', nest: s.name);
-                  builder.element('BASEUNITS', nest: s.unitOfMeasure);
-                  builder.element('OPENINGBALANCE', nest: '${s.openingQuantity.toStringAsFixed(2)} ${s.unitOfMeasure}');
-                  builder.element('OPENINGRATE', nest: s.openingRate.toStringAsFixed(2));
-                });
-              });
-            }
+                    // 2. Export Stock Items
+                    for (final s in stockItems) {
+                      builder.element(
+                        'TALLYMESSAGE',
+                        attributes: {'xmlns:UDF': 'TallyUDF'},
+                        nest: () {
+                          builder.element(
+                            'STOCKITEM',
+                            attributes: {'NAME': s.name, 'ACTION': 'Create'},
+                            nest: () {
+                              builder.element('NAME', nest: s.name);
+                              builder.element(
+                                'BASEUNITS',
+                                nest: s.unitOfMeasure,
+                              );
+                              builder.element(
+                                'OPENINGBALANCE',
+                                nest:
+                                    '${s.openingQuantity.toStringAsFixed(2)} ${s.unitOfMeasure}',
+                              );
+                              builder.element(
+                                'OPENINGRATE',
+                                nest: s.openingRate.toStringAsFixed(2),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    }
 
-            // 3. Export Vouchers (Sales, Receipts, Payments)
-            final tallyDateFormat = DateFormat('yyyyMMdd');
-            for (final v in filteredVouchers) {
-              builder.element('TALLYMESSAGE', attributes: {'xmlns:UDF': 'TallyUDF'}, nest: () {
-                builder.element('VOUCHER', attributes: {'VCHTYPE': v.voucherType, 'ACTION': 'Create'}, nest: () {
-                  builder.element('DATE', nest: tallyDateFormat.format(v.date));
-                  builder.element('VOUCHERTYPENAME', nest: v.voucherType);
-                  builder.element('VOUCHERNUMBER', nest: v.voucherNumber);
-                  if (v.narration != null) builder.element('NARRATION', nest: v.narration!);
-                });
-              });
-            }
-          });
-        });
-      });
-    });
+                    // 3. Export Vouchers (Sales, Receipts, Payments)
+                    final tallyDateFormat = DateFormat('yyyyMMdd');
+                    for (final v in filteredVouchers) {
+                      builder.element(
+                        'TALLYMESSAGE',
+                        attributes: {'xmlns:UDF': 'TallyUDF'},
+                        nest: () {
+                          builder.element(
+                            'VOUCHER',
+                            attributes: {
+                              'VCHTYPE': v.voucherType,
+                              'ACTION': 'Create',
+                            },
+                            nest: () {
+                              builder.element(
+                                'DATE',
+                                nest: tallyDateFormat.format(v.date),
+                              );
+                              builder.element(
+                                'VOUCHERTYPENAME',
+                                nest: v.voucherType,
+                              );
+                              builder.element(
+                                'VOUCHERNUMBER',
+                                nest: v.voucherNumber,
+                              );
+                              if (v.narration != null)
+                                builder.element(
+                                  'NARRATION',
+                                  nest: v.narration!,
+                                );
+                            },
+                          );
+                        },
+                      );
+                    }
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
 
     return builder.buildDocument().toXmlString(pretty: true);
   }
 
   /// Safe Tally XML Import with Duplicate Prevention
-  Future<ImportResult> importTallyXml(String xmlContent, {DuplicateHandling duplicateHandling = DuplicateHandling.skip}) async {
+  Future<ImportResult> importTallyXml(
+    String xmlContent, {
+    DuplicateHandling duplicateHandling = DuplicateHandling.skip,
+  }) async {
     int created = 0;
     int updated = 0;
     int skipped = 0;
@@ -541,10 +806,15 @@ class DataExchangeService {
       final ledgerElements = document.findAllElements('LEDGER');
       for (final el in ledgerElements) {
         try {
-          final name = el.getAttribute('NAME') ?? el.findElements('NAME').firstOrNull?.innerText ?? '';
+          final name =
+              el.getAttribute('NAME') ??
+              el.findElements('NAME').firstOrNull?.innerText ??
+              '';
           if (name.trim().isEmpty) continue;
 
-          final parent = el.findElements('PARENT').firstOrNull?.innerText.toLowerCase() ?? '';
+          final parent =
+              el.findElements('PARENT').firstOrNull?.innerText.toLowerCase() ??
+              '';
           String groupId = 'debtors';
           if (parent.contains('creditor')) groupId = 'creditors';
           if (parent.contains('bank')) groupId = 'bank_accounts';
@@ -552,19 +822,26 @@ class DataExchangeService {
           if (parent.contains('sales')) groupId = 'sales_accounts';
           if (parent.contains('purchase')) groupId = 'purchase_accounts';
 
-          final opBalStr = el.findElements('OPENINGBALANCE').firstOrNull?.innerText ?? '0';
-          final opBal = double.tryParse(opBalStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0.0;
+          final opBalStr =
+              el.findElements('OPENINGBALANCE').firstOrNull?.innerText ?? '0';
+          final opBal =
+              double.tryParse(opBalStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ??
+              0.0;
           final addr = el.findElements('ADDRESS').firstOrNull?.innerText;
           final phone = el.findElements('LEDGERPHONE').firstOrNull?.innerText;
           final gstin = el.findElements('PARTYGSTIN').firstOrNull?.innerText;
 
-          final existing = await (db.select(db.ledgers)..where((t) => t.name.equals(name.trim()))).getSingleOrNull();
+          final existing = await (db.select(
+            db.ledgers,
+          )..where((t) => t.name.equals(name.trim()))).getSingleOrNull();
 
           if (existing != null) {
             if (duplicateHandling == DuplicateHandling.skip) {
               skipped++;
             } else if (duplicateHandling == DuplicateHandling.update) {
-              await (db.update(db.ledgers)..where((t) => t.id.equals(existing.id))).write(
+              await (db.update(
+                db.ledgers,
+              )..where((t) => t.id.equals(existing.id))).write(
                 LedgersCompanion(
                   address: drift.Value(addr ?? existing.address),
                   phone: drift.Value(phone ?? existing.phone),
@@ -574,27 +851,35 @@ class DataExchangeService {
               updated++;
             } else {
               final newName = '$name (Imported)';
-              await db.into(db.ledgers).insert(LedgersCompanion.insert(
+              await db
+                  .into(db.ledgers)
+                  .insert(
+                    LedgersCompanion.insert(
+                      id: uuid.v4(),
+                      name: newName,
+                      groupId: groupId,
+                      openingBalance: drift.Value(opBal),
+                      address: drift.Value(addr),
+                      phone: drift.Value(phone),
+                      taxNumber: drift.Value(gstin),
+                    ),
+                  );
+              created++;
+            }
+          } else {
+            await db
+                .into(db.ledgers)
+                .insert(
+                  LedgersCompanion.insert(
                     id: uuid.v4(),
-                    name: newName,
+                    name: name.trim(),
                     groupId: groupId,
                     openingBalance: drift.Value(opBal),
                     address: drift.Value(addr),
                     phone: drift.Value(phone),
                     taxNumber: drift.Value(gstin),
-                  ));
-              created++;
-            }
-          } else {
-            await db.into(db.ledgers).insert(LedgersCompanion.insert(
-                  id: uuid.v4(),
-                  name: name.trim(),
-                  groupId: groupId,
-                  openingBalance: drift.Value(opBal),
-                  address: drift.Value(addr),
-                  phone: drift.Value(phone),
-                  taxNumber: drift.Value(gstin),
-                ));
+                  ),
+                );
             created++;
           }
         } catch (e) {
@@ -607,22 +892,36 @@ class DataExchangeService {
       final stockElements = document.findAllElements('STOCKITEM');
       for (final el in stockElements) {
         try {
-          final name = el.getAttribute('NAME') ?? el.findElements('NAME').firstOrNull?.innerText ?? '';
+          final name =
+              el.getAttribute('NAME') ??
+              el.findElements('NAME').firstOrNull?.innerText ??
+              '';
           if (name.trim().isEmpty) continue;
 
-          final uom = el.findElements('BASEUNITS').firstOrNull?.innerText ?? 'PCS';
-          final opBalStr = el.findElements('OPENINGBALANCE').firstOrNull?.innerText ?? '0';
-          final opQty = double.tryParse(opBalStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0.0;
-          final opRateStr = el.findElements('OPENINGRATE').firstOrNull?.innerText ?? '0';
-          final opRate = double.tryParse(opRateStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0.0;
+          final uom =
+              el.findElements('BASEUNITS').firstOrNull?.innerText ?? 'PCS';
+          final opBalStr =
+              el.findElements('OPENINGBALANCE').firstOrNull?.innerText ?? '0';
+          final opQty =
+              double.tryParse(opBalStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ??
+              0.0;
+          final opRateStr =
+              el.findElements('OPENINGRATE').firstOrNull?.innerText ?? '0';
+          final opRate =
+              double.tryParse(opRateStr.replaceAll(RegExp(r'[^0-9.-]'), '')) ??
+              0.0;
 
-          final existing = await (db.select(db.stockItems)..where((t) => t.name.equals(name.trim()))).getSingleOrNull();
+          final existing = await (db.select(
+            db.stockItems,
+          )..where((t) => t.name.equals(name.trim()))).getSingleOrNull();
 
           if (existing != null) {
             if (duplicateHandling == DuplicateHandling.skip) {
               skipped++;
             } else if (duplicateHandling == DuplicateHandling.update) {
-              await (db.update(db.stockItems)..where((t) => t.id.equals(existing.id))).write(
+              await (db.update(
+                db.stockItems,
+              )..where((t) => t.id.equals(existing.id))).write(
                 StockItemsCompanion(
                   unitOfMeasure: drift.Value(uom),
                   openingQuantity: drift.Value(opQty),
@@ -632,23 +931,31 @@ class DataExchangeService {
               updated++;
             } else {
               final newName = '$name (Imported)';
-              await db.into(db.stockItems).insert(StockItemsCompanion.insert(
-                    id: uuid.v4(),
-                    name: newName,
-                    unitOfMeasure: drift.Value(uom),
-                    openingQuantity: drift.Value(opQty),
-                    openingRate: drift.Value(opRate),
-                  ));
+              await db
+                  .into(db.stockItems)
+                  .insert(
+                    StockItemsCompanion.insert(
+                      id: uuid.v4(),
+                      name: newName,
+                      unitOfMeasure: drift.Value(uom),
+                      openingQuantity: drift.Value(opQty),
+                      openingRate: drift.Value(opRate),
+                    ),
+                  );
               created++;
             }
           } else {
-            await db.into(db.stockItems).insert(StockItemsCompanion.insert(
-                  id: uuid.v4(),
-                  name: name.trim(),
-                  unitOfMeasure: drift.Value(uom),
-                  openingQuantity: drift.Value(opQty),
-                  openingRate: drift.Value(opRate),
-                ));
+            await db
+                .into(db.stockItems)
+                .insert(
+                  StockItemsCompanion.insert(
+                    id: uuid.v4(),
+                    name: name.trim(),
+                    unitOfMeasure: drift.Value(uom),
+                    openingQuantity: drift.Value(opQty),
+                    openingRate: drift.Value(opRate),
+                  ),
+                );
             created++;
           }
         } catch (e) {
@@ -694,7 +1001,12 @@ class DataExchangeService {
     }
 
     if (rows.isEmpty) {
-      return CsvImportPreview(headers: [], previewRows: [], totalRows: 0, delimiter: delimiter);
+      return CsvImportPreview(
+        headers: [],
+        previewRows: [],
+        totalRows: 0,
+        delimiter: delimiter,
+      );
     }
 
     final headers = rows.first.map((e) => e.toString().trim()).toList();
@@ -711,7 +1023,8 @@ class DataExchangeService {
   /// Imports Customers/Ledgers using mapped columns
   Future<ImportResult> importCustomersMapped({
     required List<List<dynamic>> rows,
-    required Map<String, int> columnMapping, // 'name', 'phone', 'address', 'email', 'taxNumber', 'openingBalance'
+    required Map<String, int>
+    columnMapping, // 'name', 'phone', 'address', 'email', 'taxNumber', 'openingBalance'
     DuplicateHandling duplicateHandling = DuplicateHandling.skip,
   }) async {
     int created = 0;
@@ -722,7 +1035,13 @@ class DataExchangeService {
 
     final nameCol = columnMapping['name'];
     if (nameCol == null) {
-      return ImportResult(createdCount: 0, updatedCount: 0, skippedCount: 0, failedCount: 0, errors: ['Customer Name mapping is required.']);
+      return ImportResult(
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        errors: ['Customer Name mapping is required.'],
+      );
     }
 
     for (int i = 0; i < rows.length; i++) {
@@ -732,22 +1051,47 @@ class DataExchangeService {
       final name = row[nameCol].toString().trim();
       if (name.isEmpty) continue;
 
-      final phone = (columnMapping['phone'] != null && columnMapping['phone']! < row.length) ? row[columnMapping['phone']!].toString().trim() : null;
-      final addr = (columnMapping['address'] != null && columnMapping['address']! < row.length) ? row[columnMapping['address']!].toString().trim() : null;
-      final email = (columnMapping['email'] != null && columnMapping['email']! < row.length) ? row[columnMapping['email']!].toString().trim() : null;
-      final tax = (columnMapping['taxNumber'] != null && columnMapping['taxNumber']! < row.length) ? row[columnMapping['taxNumber']!].toString().trim() : null;
-      final opBal = (columnMapping['openingBalance'] != null && columnMapping['openingBalance']! < row.length)
-          ? (double.tryParse(row[columnMapping['openingBalance']!].toString()) ?? 0.0)
+      final phone =
+          (columnMapping['phone'] != null &&
+              columnMapping['phone']! < row.length)
+          ? row[columnMapping['phone']!].toString().trim()
+          : null;
+      final addr =
+          (columnMapping['address'] != null &&
+              columnMapping['address']! < row.length)
+          ? row[columnMapping['address']!].toString().trim()
+          : null;
+      final email =
+          (columnMapping['email'] != null &&
+              columnMapping['email']! < row.length)
+          ? row[columnMapping['email']!].toString().trim()
+          : null;
+      final tax =
+          (columnMapping['taxNumber'] != null &&
+              columnMapping['taxNumber']! < row.length)
+          ? row[columnMapping['taxNumber']!].toString().trim()
+          : null;
+      final opBal =
+          (columnMapping['openingBalance'] != null &&
+              columnMapping['openingBalance']! < row.length)
+          ? (double.tryParse(
+                  row[columnMapping['openingBalance']!].toString(),
+                ) ??
+                0.0)
           : 0.0;
 
       try {
-        final existing = await (db.select(db.ledgers)..where((t) => t.name.equals(name))).getSingleOrNull();
+        final existing = await (db.select(
+          db.ledgers,
+        )..where((t) => t.name.equals(name))).getSingleOrNull();
 
         if (existing != null) {
           if (duplicateHandling == DuplicateHandling.skip) {
             skipped++;
           } else if (duplicateHandling == DuplicateHandling.update) {
-            await (db.update(db.ledgers)..where((t) => t.id.equals(existing.id))).write(
+            await (db.update(
+              db.ledgers,
+            )..where((t) => t.id.equals(existing.id))).write(
               LedgersCompanion(
                 phone: drift.Value(phone ?? existing.phone),
                 address: drift.Value(addr ?? existing.address),
@@ -758,29 +1102,37 @@ class DataExchangeService {
             updated++;
           } else {
             final uniqueName = '$name (${created + 1})';
-            await db.into(db.ledgers).insert(LedgersCompanion.insert(
+            await db
+                .into(db.ledgers)
+                .insert(
+                  LedgersCompanion.insert(
+                    id: uuid.v4(),
+                    name: uniqueName,
+                    groupId: 'debtors',
+                    openingBalance: drift.Value(opBal),
+                    phone: drift.Value(phone),
+                    address: drift.Value(addr),
+                    email: drift.Value(email),
+                    taxNumber: drift.Value(tax),
+                  ),
+                );
+            created++;
+          }
+        } else {
+          await db
+              .into(db.ledgers)
+              .insert(
+                LedgersCompanion.insert(
                   id: uuid.v4(),
-                  name: uniqueName,
+                  name: name,
                   groupId: 'debtors',
                   openingBalance: drift.Value(opBal),
                   phone: drift.Value(phone),
                   address: drift.Value(addr),
                   email: drift.Value(email),
                   taxNumber: drift.Value(tax),
-                ));
-            created++;
-          }
-        } else {
-          await db.into(db.ledgers).insert(LedgersCompanion.insert(
-                id: uuid.v4(),
-                name: name,
-                groupId: 'debtors',
-                openingBalance: drift.Value(opBal),
-                phone: drift.Value(phone),
-                address: drift.Value(addr),
-                email: drift.Value(email),
-                taxNumber: drift.Value(tax),
-              ));
+                ),
+              );
           created++;
         }
       } catch (e) {
@@ -801,7 +1153,8 @@ class DataExchangeService {
   /// Imports Products/StockItems using mapped columns
   Future<ImportResult> importProductsMapped({
     required List<List<dynamic>> rows,
-    required Map<String, int> columnMapping, // 'name', 'sku', 'unit', 'salesRate', 'purchaseRate', 'openingQuantity'
+    required Map<String, int>
+    columnMapping, // 'name', 'sku', 'unit', 'salesRate', 'purchaseRate', 'openingQuantity'
     DuplicateHandling duplicateHandling = DuplicateHandling.skip,
   }) async {
     int created = 0;
@@ -812,7 +1165,13 @@ class DataExchangeService {
 
     final nameCol = columnMapping['name'];
     if (nameCol == null) {
-      return ImportResult(createdCount: 0, updatedCount: 0, skippedCount: 0, failedCount: 0, errors: ['Product Name mapping is required.']);
+      return ImportResult(
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        errors: ['Product Name mapping is required.'],
+      );
     }
 
     for (int i = 0; i < rows.length; i++) {
@@ -822,57 +1181,92 @@ class DataExchangeService {
       final name = row[nameCol].toString().trim();
       if (name.isEmpty) continue;
 
-      final sku = (columnMapping['sku'] != null && columnMapping['sku']! < row.length) ? row[columnMapping['sku']!].toString().trim() : null;
-      final unit = (columnMapping['unit'] != null && columnMapping['unit']! < row.length) ? row[columnMapping['unit']!].toString().trim() : 'PCS';
-      final salesRate = (columnMapping['salesRate'] != null && columnMapping['salesRate']! < row.length)
-          ? (double.tryParse(row[columnMapping['salesRate']!].toString()) ?? 0.0)
+      final sku =
+          (columnMapping['sku'] != null && columnMapping['sku']! < row.length)
+          ? row[columnMapping['sku']!].toString().trim()
+          : null;
+      final unit =
+          (columnMapping['unit'] != null && columnMapping['unit']! < row.length)
+          ? row[columnMapping['unit']!].toString().trim()
+          : 'PCS';
+      final salesRate =
+          (columnMapping['salesRate'] != null &&
+              columnMapping['salesRate']! < row.length)
+          ? (double.tryParse(row[columnMapping['salesRate']!].toString()) ??
+                0.0)
           : 0.0;
-      final purRate = (columnMapping['purchaseRate'] != null && columnMapping['purchaseRate']! < row.length)
-          ? (double.tryParse(row[columnMapping['purchaseRate']!].toString()) ?? 0.0)
+      final purRate =
+          (columnMapping['purchaseRate'] != null &&
+              columnMapping['purchaseRate']! < row.length)
+          ? (double.tryParse(row[columnMapping['purchaseRate']!].toString()) ??
+                0.0)
           : 0.0;
-      final opQty = (columnMapping['openingQuantity'] != null && columnMapping['openingQuantity']! < row.length)
-          ? (double.tryParse(row[columnMapping['openingQuantity']!].toString()) ?? 0.0)
+      final opQty =
+          (columnMapping['openingQuantity'] != null &&
+              columnMapping['openingQuantity']! < row.length)
+          ? (double.tryParse(
+                  row[columnMapping['openingQuantity']!].toString(),
+                ) ??
+                0.0)
           : 0.0;
 
       try {
-        final existing = await (db.select(db.stockItems)..where((t) => t.name.equals(name))).getSingleOrNull();
+        final existing = await (db.select(
+          db.stockItems,
+        )..where((t) => t.name.equals(name))).getSingleOrNull();
 
         if (existing != null) {
           if (duplicateHandling == DuplicateHandling.skip) {
             skipped++;
           } else if (duplicateHandling == DuplicateHandling.update) {
-            await (db.update(db.stockItems)..where((t) => t.id.equals(existing.id))).write(
+            await (db.update(
+              db.stockItems,
+            )..where((t) => t.id.equals(existing.id))).write(
               StockItemsCompanion(
                 sku: drift.Value(sku ?? existing.sku),
-                unitOfMeasure: drift.Value(unit.isNotEmpty ? unit : existing.unitOfMeasure),
-                salesRate: drift.Value(salesRate > 0 ? salesRate : existing.salesRate),
-                purchaseRate: drift.Value(purRate > 0 ? purRate : existing.purchaseRate),
+                unitOfMeasure: drift.Value(
+                  unit.isNotEmpty ? unit : existing.unitOfMeasure,
+                ),
+                salesRate: drift.Value(
+                  salesRate > 0 ? salesRate : existing.salesRate,
+                ),
+                purchaseRate: drift.Value(
+                  purRate > 0 ? purRate : existing.purchaseRate,
+                ),
               ),
             );
             updated++;
           } else {
             final uniqueName = '$name (${created + 1})';
-            await db.into(db.stockItems).insert(StockItemsCompanion.insert(
+            await db
+                .into(db.stockItems)
+                .insert(
+                  StockItemsCompanion.insert(
+                    id: uuid.v4(),
+                    name: uniqueName,
+                    sku: drift.Value(sku),
+                    unitOfMeasure: drift.Value(unit.isNotEmpty ? unit : 'PCS'),
+                    salesRate: drift.Value(salesRate),
+                    purchaseRate: drift.Value(purRate),
+                    openingQuantity: drift.Value(opQty),
+                  ),
+                );
+            created++;
+          }
+        } else {
+          await db
+              .into(db.stockItems)
+              .insert(
+                StockItemsCompanion.insert(
                   id: uuid.v4(),
-                  name: uniqueName,
+                  name: name,
                   sku: drift.Value(sku),
                   unitOfMeasure: drift.Value(unit.isNotEmpty ? unit : 'PCS'),
                   salesRate: drift.Value(salesRate),
                   purchaseRate: drift.Value(purRate),
                   openingQuantity: drift.Value(opQty),
-                ));
-            created++;
-          }
-        } else {
-          await db.into(db.stockItems).insert(StockItemsCompanion.insert(
-                id: uuid.v4(),
-                name: name,
-                sku: drift.Value(sku),
-                unitOfMeasure: drift.Value(unit.isNotEmpty ? unit : 'PCS'),
-                salesRate: drift.Value(salesRate),
-                purchaseRate: drift.Value(purRate),
-                openingQuantity: drift.Value(opQty),
-              ));
+                ),
+              );
           created++;
         }
       } catch (e) {
@@ -906,7 +1300,9 @@ class DataExchangeService {
 
     await db.customStatement('PRAGMA wal_checkpoint(TRUNCATE);');
     final dbBytes = await dbFile.readAsBytes();
-    archive.addFile(ArchiveFile('tally_ledger.sqlite', dbBytes.length, dbBytes));
+    archive.addFile(
+      ArchiveFile('tally_ledger.sqlite', dbBytes.length, dbBytes),
+    );
 
     // 2. Include Company Logo if present
     final profile = await profileService.getProfile();
@@ -915,12 +1311,16 @@ class DataExchangeService {
       if (await logoFile.exists()) {
         final logoBytes = await logoFile.readAsBytes();
         final ext = logoFile.path.split('.').lastOrNull ?? 'png';
-        archive.addFile(ArchiveFile('company_logo.$ext', logoBytes.length, logoBytes));
+        archive.addFile(
+          ArchiveFile('company_logo.$ext', logoBytes.length, logoBytes),
+        );
       }
     }
 
     // 3. Include Manifest metadata
-    final custCount = await (db.select(db.ledgers)..where((t) => t.groupId.equals('debtors'))).get();
+    final custCount = await (db.select(
+      db.ledgers,
+    )..where((t) => t.groupId.equals('debtors'))).get();
     final prodCount = await db.select(db.stockItems).get();
     final vchCount = await db.select(db.vouchers).get();
 
@@ -935,14 +1335,18 @@ class DataExchangeService {
       'voucherCount': vchCount.length,
     };
     final manifestBytes = utf8.encode(jsonEncode(manifest));
-    archive.addFile(ArchiveFile('manifest.json', manifestBytes.length, manifestBytes));
+    archive.addFile(
+      ArchiveFile('manifest.json', manifestBytes.length, manifestBytes),
+    );
 
     final zipData = ZipEncoder().encode(archive);
     return Uint8List.fromList(zipData ?? []);
   }
 
   /// Restores complete application backup from archive bytes
-  Future<Map<String, dynamic>> restoreFullBackupArchive(Uint8List archiveBytes) async {
+  Future<Map<String, dynamic>> restoreFullBackupArchive(
+    Uint8List archiveBytes,
+  ) async {
     final archive = ZipDecoder().decodeBytes(archiveBytes);
 
     ArchiveFile? dbArchiveFile;
@@ -956,27 +1360,136 @@ class DataExchangeService {
     }
 
     if (dbArchiveFile == null) {
-      throw Exception('Invalid backup file: Database snapshot (tally_ledger.sqlite) is missing.');
+      throw Exception(
+        'Invalid backup file: Database snapshot (tally_ledger.sqlite) is missing.',
+      );
     }
 
     // 1. Verify Manifest
     Map<String, dynamic> manifestData = {};
     if (manifestFile != null) {
       try {
-        manifestData = jsonDecode(utf8.decode(manifestFile.content as List<int>)) as Map<String, dynamic>;
+        manifestData =
+            jsonDecode(utf8.decode(manifestFile.content as List<int>))
+                as Map<String, dynamic>;
       } catch (_) {}
     }
 
-    // 2. Validate DB integrity in temporary file before overwriting active database
+    // 2. Validate the snapshot before applying it to the active connection.
     final dbPath = await getCustomDatabasePath('tally_ledger');
     final dbDir = File(dbPath).parent;
-    final tempDbFile = File('${dbDir.path}/restore_test_${DateTime.now().millisecondsSinceEpoch}.sqlite');
-    await tempDbFile.writeAsBytes(dbArchiveFile.content as List<int>);
+    final tempDbFile = File(
+      '${dbDir.path}/restore_test_${DateTime.now().millisecondsSinceEpoch}.sqlite',
+    );
+    await tempDbFile.writeAsBytes(
+      dbArchiveFile.content as List<int>,
+      flush: true,
+    );
 
-    // 3. Atomically overwrite active database file
-    final activeFile = File(dbPath);
-    await tempDbFile.copy(activeFile.path);
-    await tempDbFile.delete();
+    const tableNames = [
+      'account_groups',
+      'ledgers',
+      'stock_items',
+      'vouchers',
+      'voucher_entries',
+      'stock_transactions',
+      'sync_metadata',
+      'invoice_sequences',
+      'audit_logs',
+      'business_profiles',
+    ];
+    var databaseAttached = false;
+    try {
+      await db.customStatement('ATTACH DATABASE ? AS restore_db', [
+        tempDbFile.path,
+      ]);
+      databaseAttached = true;
+
+      final integrityRows = await db
+          .customSelect('PRAGMA restore_db.integrity_check')
+          .get();
+      if (integrityRows.isEmpty ||
+          integrityRows.first.read<String>('integrity_check') != 'ok') {
+        throw Exception(
+          'Invalid backup file: database integrity check failed.',
+        );
+      }
+
+      final archivedTables = await db
+          .customSelect(
+            "SELECT name FROM restore_db.sqlite_master WHERE type = 'table'",
+          )
+          .get();
+      final archivedTableNames = archivedTables
+          .map((row) => row.read<String>('name'))
+          .toSet();
+      final missingTables = tableNames.where(
+        (tableName) => !archivedTableNames.contains(tableName),
+      );
+      if (missingTables.isNotEmpty) {
+        throw Exception(
+          'Invalid backup file: missing database tables: ${missingTables.join(', ')}.',
+        );
+      }
+
+      final sharedColumnsByTable = <String, List<String>>{};
+      for (final tableName in tableNames) {
+        final activeColumns = await db
+            .customSelect('PRAGMA table_info("$tableName")')
+            .get();
+        final archivedColumns = await db
+            .customSelect('PRAGMA restore_db.table_info("$tableName")')
+            .get();
+        final archivedNames = archivedColumns
+            .map((row) => row.read<String>('name'))
+            .toSet();
+        final sharedColumns = activeColumns
+            .map((row) => row.read<String>('name'))
+            .where(archivedNames.contains)
+            .toList();
+        if (sharedColumns.isEmpty) {
+          throw Exception(
+            'Invalid backup file: no compatible columns for $tableName.',
+          );
+        }
+        sharedColumnsByTable[tableName] = sharedColumns;
+      }
+
+      // Keep the app's open Drift connection in sync with the restored data.
+      await db.transaction(() async {
+        for (final tableName in [
+          'voucher_entries',
+          'stock_transactions',
+          'vouchers',
+          'invoice_sequences',
+          'audit_logs',
+          'sync_metadata',
+          'business_profiles',
+          'stock_items',
+          'ledgers',
+          'account_groups',
+        ]) {
+          await db.customStatement('DELETE FROM $tableName');
+        }
+        for (final tableName in tableNames) {
+          final columns = sharedColumnsByTable[tableName]!
+              .map((column) => '"${column.replaceAll('"', '""')}"')
+              .join(', ');
+          final quotedTableName = '"$tableName"';
+          await db.customStatement(
+            'INSERT INTO $quotedTableName ($columns) '
+            'SELECT $columns FROM restore_db.$quotedTableName',
+          );
+        }
+      });
+    } finally {
+      if (databaseAttached) {
+        await db.customStatement('DETACH DATABASE restore_db');
+      }
+      if (await tempDbFile.exists()) {
+        await tempDbFile.delete();
+      }
+    }
 
     // 4. Restore logo if present
     if (logoArchiveFile != null) {
@@ -995,13 +1508,12 @@ class DataExchangeService {
     DateTime? customStart,
     DateTime? customEnd,
     String delimiter = ',',
-  }) =>
-      exportPaymentsAndReceiptsCsv(
-        range: range,
-        customStart: customStart,
-        customEnd: customEnd,
-        delimiter: delimiter,
-      );
+  }) => exportPaymentsAndReceiptsCsv(
+    range: range,
+    customStart: customStart,
+    customEnd: customEnd,
+    delimiter: delimiter,
+  );
 
   Future<Uint8List> exportExcelWorkbook({
     ExportDateRange range = ExportDateRange.allTime,
@@ -1019,7 +1531,10 @@ class DataExchangeService {
     return manifest.isNotEmpty;
   }
 
-  Future<CsvImportPreview> previewCsvImport({required String filePath, String delimiter = ','}) async {
+  Future<CsvImportPreview> previewCsvImport({
+    required String filePath,
+    String delimiter = ',',
+  }) async {
     final content = await File(filePath).readAsString();
     return previewDelimitedFile(content);
   }
@@ -1045,10 +1560,18 @@ class DataExchangeService {
     }
 
     if (rows.length <= 1) {
-      return ImportResult(createdCount: 0, updatedCount: 0, skippedCount: 0, failedCount: 0, errors: ['File contains no data rows.']);
+      return ImportResult(
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        errors: ['File contains no data rows.'],
+      );
     }
 
-    final headers = rows.first.map((e) => e.toString().toLowerCase().trim()).toList();
+    final headers = rows.first
+        .map((e) => e.toString().toLowerCase().trim())
+        .toList();
     final dataRows = rows.skip(1).toList();
 
     // Map header names to column index
@@ -1060,12 +1583,17 @@ class DataExchangeService {
       if (h.contains('address')) indexMap['address'] = i;
       if (h.contains('email')) indexMap['email'] = i;
       if (h.contains('tax') || h.contains('gst')) indexMap['taxNumber'] = i;
-      if (h.contains('opening') && (h.contains('bal') || h.contains('balance'))) indexMap['openingBalance'] = i;
+      if (h.contains('opening') && (h.contains('bal') || h.contains('balance')))
+        indexMap['openingBalance'] = i;
       if (h.contains('sku') || h.contains('code')) indexMap['sku'] = i;
       if (h.contains('unit') || h.contains('uom')) indexMap['unit'] = i;
-      if (h.contains('sales') || h.contains('selling')) indexMap['salesRate'] = i;
-      if (h.contains('purchase') || h.contains('cost') || h.contains('buy')) indexMap['purchaseRate'] = i;
-      if (h.contains('opening') && (h.contains('qty') || h.contains('quantity'))) indexMap['openingQuantity'] = i;
+      if (h.contains('sales') || h.contains('selling'))
+        indexMap['salesRate'] = i;
+      if (h.contains('purchase') || h.contains('cost') || h.contains('buy'))
+        indexMap['purchaseRate'] = i;
+      if (h.contains('opening') &&
+          (h.contains('qty') || h.contains('quantity')))
+        indexMap['openingQuantity'] = i;
     }
 
     // Default name to column 0 or 1 if not detected

@@ -14,7 +14,7 @@ void main() {
   });
 
   test('Database opens, executes schema creation and version check', () async {
-    expect(db.schemaVersion, equals(6));
+    expect(db.schemaVersion, equals(7));
   });
 
   test('Foreign key constraints are enforced', () async {
@@ -31,7 +31,9 @@ void main() {
     final groups = await db.select(db.accountGroups).get();
     expect(groups.isNotEmpty, isTrue);
 
-    final cashLedger = await (db.select(db.ledgers)..where((t) => t.id.equals('cash'))).getSingleOrNull();
+    final cashLedger = await (db.select(
+      db.ledgers,
+    )..where((t) => t.id.equals('cash'))).getSingleOrNull();
     expect(cashLedger, isNotNull);
     expect(cashLedger!.name, equals('Cash Ledger'));
   });

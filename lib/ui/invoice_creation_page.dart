@@ -1740,6 +1740,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                         );
                       },
                   optionsViewBuilder: (context, onSelected, options) {
+                    final highlightIndex = AutocompleteHighlightedOption.of(context);
                     return Align(
                       alignment: Alignment.topLeft,
                       child: Material(
@@ -1765,10 +1766,14 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             ),
                             itemBuilder: (context, index) {
                               final ledger = options.elementAt(index);
+                              final isHighlighted = index == highlightIndex;
                               return Material(
-                                color: AppColors.surface,
+                                color: isHighlighted
+                                    ? AppColors.primary.withValues(alpha: 0.12)
+                                    : AppColors.surface,
                                 child: ListTile(
                                   dense: true,
+                                  selected: isHighlighted,
                                   hoverColor: AppColors.surfaceSecondary,
                                   title: Text(
                                     ledger.name +
@@ -1996,6 +2001,7 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                             );
                           },
                       optionsViewBuilder: (context, onSelected, options) {
+                        final highlightIndex = AutocompleteHighlightedOption.of(context);
                         return Align(
                           alignment: Alignment.topLeft,
                           child: Material(
@@ -2022,22 +2028,30 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                     ),
                                 itemBuilder: (BuildContext context, int index) {
                                   final option = options.elementAt(index);
+                                  final isHighlighted = index == highlightIndex;
                                   final stockQty = _getStockQuantity(option.id);
                                   final stdRate = _invoiceType == 'Sales'
                                       ? option.salesRate
                                       : option.purchaseRate;
 
-                                  return ListTile(
-                                    dense: true,
-                                    hoverColor: AppColors.surfaceSecondary,
-                                    title: Text(
-                                      option.name,
-                                      style: const TextStyle(
-                                        color: AppColors.textPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                                  return Container(
+                                    color: isHighlighted
+                                        ? AppColors.primary.withValues(alpha: 0.12)
+                                        : Colors.transparent,
+                                    child: ListTile(
+                                      dense: true,
+                                      selected: isHighlighted,
+                                      hoverColor: AppColors.surfaceSecondary,
+                                      title: Text(
+                                        option.name,
+                                        style: TextStyle(
+                                          color: isHighlighted
+                                              ? AppColors.primary
+                                              : AppColors.textPrimary,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
                                       ),
-                                    ),
                                     subtitle: Text(
                                       'Std Rate: ${_currencyFormat.format(stdRate)}',
                                       style: const TextStyle(
@@ -2070,8 +2084,9 @@ class _InvoiceCreationPageState extends State<InvoiceCreationPage> {
                                     onTap: () {
                                       onSelected(option);
                                     },
-                                  );
-                                },
+                                  ),
+                                );
+                              },
                               ),
                             ),
                           ),

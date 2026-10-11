@@ -422,14 +422,18 @@ class AccountingEngine {
   }
 
   // 3. Cancel Voucher (Preserves accounting history, stock safely restored)
-  Future<void> cancelVoucher(String voucherId) async {
+  Future<void> cancelVoucher(String voucherIdOrNumber) async {
     await db.transaction(() async {
-      final v = await (db.select(db.vouchers)..where((t) => t.id.equals(voucherId))).getSingleOrNull();
+      final v = await (db.select(db.vouchers)..where(
+            (t) =>
+                t.id.equals(voucherIdOrNumber) |
+                t.voucherNumber.equals(voucherIdOrNumber),
+          )).getSingleOrNull();
       if (v == null) return;
 
       await (db.update(
         db.vouchers,
-      )..where((t) => t.id.equals(voucherId))).write(
+      )..where((t) => t.id.equals(v.id))).write(
         VouchersCompanion(
           status: const Value('CANCELLED'),
           updatedAt: Value(DateTime.now()),
@@ -441,7 +445,7 @@ class AccountingEngine {
           id: uuid.v4(),
           action: 'CANCEL',
           entityType: 'Voucher',
-          entityId: voucherId,
+          entityId: v.id,
           oldValue: const Value('POSTED'),
           newValue: const Value('CANCELLED'),
           metadata: Value('${v.voucherType} ${v.voucherNumber} cancelled'),

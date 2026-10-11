@@ -7,6 +7,7 @@ import '../data/database.dart';
 import 'accounting_engine.dart';
 import 'business_profile_service.dart';
 import 'invoice_printer.dart';
+import 'customer_group_service.dart';
 
 class PdfExportService {
   final AppDatabase db;
@@ -1104,6 +1105,86 @@ class PdfExportService {
               ),
             ],
           );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<Uint8List> exportGroupTransactionsPdf(
+    GroupTransactionsSummary summary, {
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final pdf = pw.Document();
+    final profile = await profileService.getProfile();
+    final logo = await _loadLogoImage();
+
+    String subtitle = 'Consolidated Statement for ${summary.group.name}';
+    if (fromDate != null || toDate != null) {
+      final fStr = fromDate != null ? _dateFormat.format(fromDate) : 'Start';
+      final tStr = toDate != null ? _dateFormat.format(toDate) : 'Present';
+      subtitle += ' ($fStr to $tStr)';
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (pw.Context context) {
+          return [
+            _buildHeader(
+              profile,
+              logo,
+              'CUSTOMER GROUP STATEMENT',
+              subtitle: subtitle,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total Customers: ${summary.totalCustomers} (${summary.activeCustomersWithTransactions} active)',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                  if (summary.openingBalance.abs() > 0.001)
+                    pw.Text('Opening Bal: ${_currencyFormat.format(summary.openingBalance)}',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.orange900)),
+                  pw.Text('Total Debits: ${_currencyFormat.format(summary.totalDebit)}',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.blue900)),
+                  pw.Text('Total Credits: ${_currencyFormat.format(summary.totalCredit)}',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.green900)),
+                  pw.Text('Net Outstanding: ${_currencyFormat.format(summary.netOutstanding)}',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.red900)),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.TableHelper.fromTextArray(
+              headers: ['Date', 'Voucher #', 'Type', 'Customer Name', 'Debit (Rs.)', 'Credit (Rs.)', 'Balance (Rs.)'],
+              data: summary.rows.map((r) => [
+                _dateFormat.format(r.date),
+                r.voucherNumber,
+                r.voucherType,
+                r.customerName,
+                r.debitAmount > 0 ? _currencyFormat.format(r.debitAmount) : '-',
+                r.creditAmount > 0 ? _currencyFormat.format(r.creditAmount) : '-',
+                _currencyFormat.format(r.runningBalance),
+              ]).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+              cellAlignment: pw.Alignment.centerLeft,
+              cellAlignments: {
+                4: pw.Alignment.centerRight,
+                5: pw.Alignment.centerRight,
+                6: pw.Alignment.centerRight,
+              },
+            ),
+            pw.SizedBox(height: 20),
+          ];
         },
       ),
     );

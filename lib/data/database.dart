@@ -14,11 +14,24 @@ class AccountGroups extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+// 1b. Customer Groups table (user-defined logical categories for customers)
+class CustomerGroups extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text().unique()();
+  TextColumn get description => text().nullable()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 // 2. Ledgers table (accounts like customers, suppliers, capital, bank, cash)
 class Ledgers extends Table {
   TextColumn get id => text()();
   TextColumn get name => text().unique()();
   TextColumn get groupId => text().references(AccountGroups, #id)();
+  TextColumn get customerGroupId => text().nullable().references(CustomerGroups, #id)();
   RealColumn get openingBalance => real().withDefault(const Constant(0.0))();
   TextColumn get phone => text().nullable()();
   TextColumn get address => text().nullable()();
@@ -151,6 +164,7 @@ class BusinessProfiles extends Table {
 
 @DriftDatabase(tables: [
   AccountGroups,
+  CustomerGroups,
   Ledgers,
   StockItems,
   Vouchers,
@@ -165,7 +179,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   static QueryExecutor _openConnection() => openConnection();
 
@@ -174,16 +188,11 @@ class AppDatabase extends _$AppDatabase {
         beforeOpen: (details) async {
           // Configure SQLite PRAGMAs for production reliability
           try {
-            await customStatement('PRAGMA journal_mode = WAL;');
-            await customStatement('PRAGMA synchronous = FULL;');
-            await customStatement('PRAGMA foreign_keys = ON;');
-            await customStatement('PRAGMA busy_timeout = 5000;');
-          } catch (_) {}
-
-          try {
             await customStatement('PRAGMA foreign_keys = ON;');
             await customStatement('PRAGMA journal_mode = WAL;');
-            await customStatement('PRAGMA busy_timeout = 10000;');
+            await customStatement('PRAGMA synchronous = NORMAL;');
+            await customStatement('PRAGMA busy_timeout = 30000;');
+            await customStatement('PRAGMA wal_autocheckpoint = 1000;');
           } catch (_) {}
 
           // Ensure critical performance indexes exist
@@ -199,6 +208,8 @@ class AppDatabase extends _$AppDatabase {
           await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_deleted ON ledgers (is_deleted);');
           await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_name ON ledgers (name);');
           await customStatement('CREATE INDEX IF NOT EXISTS idx_stock_items_name ON stock_items (name);');
+          await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_cust_group ON ledgers (customer_group_id);');
+          await customStatement('CREATE INDEX IF NOT EXISTS idx_cust_groups_name ON customer_groups (name);');
         },
         onUpgrade: (m, from, to) async {
           Future<bool> columnExists(String table, String col) async {
@@ -283,6 +294,28 @@ class AppDatabase extends _$AppDatabase {
               WHERE party_ledger_id IS NULL
                 AND voucher_type IN ('Sales', 'Purchase');
             ''');
+          }
+          if (from < 8) {
+            Future<bool> tableExists(String table) async {
+              try {
+                final result = await customSelect(
+                  "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+                  variables: [Variable.withString(table)],
+                ).get();
+                return result.isNotEmpty;
+              } catch (_) {
+                return false;
+              }
+            }
+
+            if (!await tableExists('customer_groups')) {
+              await m.createTable(customerGroups);
+            }
+            if (!await columnExists('ledgers', 'customer_group_id')) {
+              await m.addColumn(ledgers, ledgers.customerGroupId);
+            }
+            await customStatement('CREATE INDEX IF NOT EXISTS idx_ledgers_cust_group ON ledgers (customer_group_id);');
+            await customStatement('CREATE INDEX IF NOT EXISTS idx_cust_groups_name ON customer_groups (name);');
           }
         },
         onCreate: (m) async {

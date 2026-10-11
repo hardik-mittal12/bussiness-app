@@ -47,6 +47,32 @@ class SystemHealthInfo {
   });
 }
 
+class PersistenceDiagnosticsInfo {
+  final String dbPath;
+  final String tempDirPath;
+  final bool isTempDirWritable;
+  final String journalMode;
+  final String synchronousMode;
+  final int busyTimeout;
+  final int walCheckpointCount;
+  final int walSizeBytes;
+  final int dbSizeBytes;
+  final bool isHealthy;
+
+  PersistenceDiagnosticsInfo({
+    required this.dbPath,
+    required this.tempDirPath,
+    required this.isTempDirWritable,
+    required this.journalMode,
+    required this.synchronousMode,
+    required this.busyTimeout,
+    required this.walCheckpointCount,
+    required this.walSizeBytes,
+    required this.dbSizeBytes,
+    required this.isHealthy,
+  });
+}
+
 class DatabaseDiagnosticService {
   final AppDatabase db;
   final BackupService backupService;
@@ -241,6 +267,54 @@ class DatabaseDiagnosticService {
       failedChecks: failed,
       metrics: metrics,
       checkTimestamp: DateTime.now(),
+    );
+  }
+
+  // 3. Persistence & Disk Forensics
+  Future<PersistenceDiagnosticsInfo> getPersistenceDiagnostics() async {
+    final dbPath = await getCustomDatabasePath('tally_ledger');
+    final tempDirPath = await getTempDirectoryPath();
+    final dbFile = File(dbPath);
+    final walFile = File('$dbPath-wal');
+
+    bool isTempWritable = false;
+    try {
+      final testFile = File('$tempDirPath/.perm_test_${DateTime.now().millisecondsSinceEpoch}');
+      testFile.writeAsStringSync('1');
+      testFile.deleteSync();
+      isTempWritable = true;
+    } catch (_) {
+      isTempWritable = false;
+    }
+
+    final journalRes = await db.customSelect('PRAGMA journal_mode;').getSingleOrNull();
+    final journalMode = journalRes?.data.values.firstOrNull?.toString() ?? 'unknown';
+
+    final syncRes = await db.customSelect('PRAGMA synchronous;').getSingleOrNull();
+    final syncVal = syncRes?.data.values.firstOrNull;
+    String syncModeStr = 'NORMAL';
+    if (syncVal == 0) syncModeStr = 'OFF';
+    if (syncVal == 1) syncModeStr = 'NORMAL';
+    if (syncVal == 2) syncModeStr = 'FULL';
+    if (syncVal == 3) syncModeStr = 'EXTRA';
+
+    final timeoutRes = await db.customSelect('PRAGMA busy_timeout;').getSingleOrNull();
+    final busyTimeout = (timeoutRes?.data.values.firstOrNull as num?)?.toInt() ?? 0;
+
+    final dbSize = await dbFile.exists() ? await dbFile.length() : 0;
+    final walSize = await walFile.exists() ? await walFile.length() : 0;
+
+    return PersistenceDiagnosticsInfo(
+      dbPath: dbPath,
+      tempDirPath: tempDirPath,
+      isTempDirWritable: isTempWritable,
+      journalMode: journalMode,
+      synchronousMode: syncModeStr,
+      busyTimeout: busyTimeout,
+      walCheckpointCount: 1000,
+      walSizeBytes: walSize,
+      dbSizeBytes: dbSize,
+      isHealthy: isTempWritable && journalMode.toLowerCase() == 'wal',
     );
   }
 }

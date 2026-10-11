@@ -139,7 +139,7 @@ void main() {
       final profileService2 = BusinessProfileService(db2);
 
       // Verify schema version is intact
-      expect(db2.schemaVersion, equals(7));
+      expect(db2.schemaVersion, equals(8));
 
       final receipt =
           await (db2.select(db2.vouchers)..where(
@@ -249,15 +249,16 @@ void main() {
     {
       final appDb = AppDatabase(NativeDatabase(dbFile));
 
-      // Verify migration completed to schemaVersion 7
-      expect(appDb.schemaVersion, equals(7));
+      // Verify migration completed to schemaVersion 8
+      expect(appDb.schemaVersion, equals(8));
 
-      // Verify v4 customer survived and new v5 column is_deleted defaulted to false
+      // Verify v4 customer survived and new v5 column is_deleted defaulted to false, v8 customerGroupId is null
       final cust = await (appDb.select(
         appDb.ledgers,
       )..where((t) => t.id.equals('cust_v4'))).getSingle();
       expect(cust.name, equals('Old Customer v4'));
       expect(cust.isDeleted, isFalse);
+      expect(cust.customerGroupId, isNull);
 
       // Verify v4 stock item survived
       final item = await (appDb.select(

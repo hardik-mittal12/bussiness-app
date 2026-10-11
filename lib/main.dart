@@ -9,6 +9,7 @@ import 'core/database_diagnostic_service.dart';
 import 'core/business_profile_service.dart';
 import 'core/data_exchange_service.dart';
 import 'core/pdf_export_service.dart';
+import 'core/customer_group_service.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/widgets/sidebar.dart';
 import 'ui/dashboard_page.dart';
@@ -32,6 +33,7 @@ void main() async {
   final profileService = BusinessProfileService(database);
   final pdfService = PdfExportService(database);
   final exchangeService = DataExchangeService(database);
+  final customerGroupService = CustomerGroupService(database);
 
   runApp(
     MultiProvider(
@@ -46,6 +48,7 @@ void main() async {
         ),
         Provider<PdfExportService>.value(value: pdfService),
         Provider<DataExchangeService>.value(value: exchangeService),
+        Provider<CustomerGroupService>.value(value: customerGroupService),
       ],
       child: const MyApp(),
     ),

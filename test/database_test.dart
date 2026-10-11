@@ -14,7 +14,7 @@ void main() {
   });
 
   test('Database opens, executes schema creation and version check', () async {
-    expect(db.schemaVersion, equals(7));
+    expect(db.schemaVersion, equals(8));
   });
 
   test('Foreign key constraints are enforced', () async {

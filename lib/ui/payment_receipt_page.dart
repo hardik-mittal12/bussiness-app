@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -30,6 +31,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
   _selectedContactLedgerId; // Customer for Receipt, Supplier for Payment
   final TextEditingController _contactSearchController = TextEditingController();
   final FocusNode _contactSearchFocusNode = FocusNode();
+  final FocusNode _amountFocusNode = FocusNode();
+  final FocusNode _refFocusNode = FocusNode();
+  final FocusNode _narrationFocusNode = FocusNode();
   String? _selectedCashBankLedgerId; // Bank/Cash account
   String _selectedPaymentMode = 'Cash';
   double _amount = 0.0;
@@ -66,8 +70,11 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
     _contactSearchController.dispose();
     _contactSearchFocusNode.dispose();
     _amountController.dispose();
-    _narrationController.dispose();
+    _amountFocusNode.dispose();
     _refController.dispose();
+    _refFocusNode.dispose();
+    _narrationController.dispose();
+    _narrationFocusNode.dispose();
     super.dispose();
   }
 
@@ -248,6 +255,11 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
       _selectedPaymentMode = 'Cash';
     });
     _loadInitialData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _contactSearchFocusNode.requestFocus();
+      }
+    });
   }
 
   Future<void> _submitVoucher() async {
@@ -561,9 +573,25 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
           const SizedBox(width: 16),
         ],
       ),
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      body: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
+            if (!_isSaving) _submitVoucher();
+          },
+          const SingleActivator(LogicalKeyboardKey.f2): () {
+            if (!_isSaving) _submitVoucher();
+          },
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (_editingVoucherId != null) {
+              _cancelEdit();
+            }
+          },
+        },
+        child: Focus(
+          autofocus: true,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           // Left Side: Entry Form
           Expanded(
             flex: 5,
@@ -870,10 +898,30 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                                 setState(() => _selectedContactLedgerId = null);
                               }
                             },
-                            onFieldSubmitted: (_) => onFieldSubmitted(),
+                            onFieldSubmitted: (_) {
+                              if (_selectedContactLedgerId != null) {
+                                _amountFocusNode.requestFocus();
+                              } else {
+                                final query = controller.text.trim().toLowerCase();
+                                if (query.isNotEmpty) {
+                                  final matches = _contactLedgers.where((l) =>
+                                    l.name.toLowerCase().contains(query) ||
+                                    (l.phone?.toLowerCase().contains(query) ?? false)
+                                  ).toList();
+                                  if (matches.isNotEmpty) {
+                                    setState(() {
+                                      _selectedContactLedgerId = matches.first.id;
+                                      controller.text = matches.first.name;
+                                    });
+                                    _amountFocusNode.requestFocus();
+                                  }
+                                }
+                              }
+                            },
                           );
                         },
                         optionsViewBuilder: (context, onSelected, options) {
+                          final highlightIndex = AutocompleteHighlightedOption.of(context);
                           return Align(
                             alignment: Alignment.topLeft,
                             child: Material(
@@ -896,45 +944,54 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                                   ),
                                   itemBuilder: (context, index) {
                                     final ledger = options.elementAt(index);
-                                    return ListTile(
-                                      dense: true,
-                                      title: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              ledger.name,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                color: ledger.isDeleted
-                                                    ? AppColors.textMuted
-                                                    : AppColors.textPrimary,
+                                    final isHighlighted = index == highlightIndex;
+                                    return Material(
+                                      color: isHighlighted
+                                          ? AppColors.primary.withValues(alpha: 0.12)
+                                          : Colors.transparent,
+                                      child: ListTile(
+                                        dense: true,
+                                        selected: isHighlighted,
+                                        title: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                ledger.name,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                  color: ledger.isDeleted
+                                                      ? AppColors.textMuted
+                                                      : (isHighlighted
+                                                          ? AppColors.primary
+                                                          : AppColors.textPrimary),
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          if (ledger.phone != null && ledger.phone!.isNotEmpty)
-                                            Text(
-                                              ledger.phone!,
-                                              style: const TextStyle(
-                                                color: AppColors.textMuted,
-                                                fontSize: 12,
+                                            if (ledger.phone != null && ledger.phone!.isNotEmpty)
+                                              Text(
+                                                ledger.phone!,
+                                                style: const TextStyle(
+                                                  color: AppColors.textMuted,
+                                                  fontSize: 12,
+                                                ),
                                               ),
-                                            ),
-                                        ],
+                                          ],
+                                        ),
+                                        subtitle: ledger.address != null && ledger.address!.isNotEmpty
+                                            ? Text(
+                                                ledger.address!,
+                                                style: const TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontSize: 11,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              )
+                                            : null,
+                                        onTap: () {
+                                          onSelected(ledger);
+                                        },
                                       ),
-                                      subtitle: ledger.address != null && ledger.address!.isNotEmpty
-                                          ? Text(
-                                              ledger.address!,
-                                              style: const TextStyle(
-                                                color: AppColors.textSecondary,
-                                                fontSize: 11,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            )
-                                          : null,
-                                      onTap: () {
-                                        onSelected(ledger);
-                                      },
                                     );
                                   },
                                 ),
@@ -947,6 +1004,7 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                             _selectedContactLedgerId = ledger.id;
                             _contactSearchController.text = ledger.name;
                           });
+                          _amountFocusNode.requestFocus();
                         },
                       ),
                       if (_selectedContactLedgerId != null) ...[
@@ -1000,6 +1058,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                       // Amount
                       TextFormField(
                         controller: _amountController,
+                        focusNode: _amountFocusNode,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) => _refFocusNode.requestFocus(),
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -1031,6 +1092,9 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                       // Reference Number
                       TextFormField(
                         controller: _refController,
+                        focusNode: _refFocusNode,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) => _narrationFocusNode.requestFocus(),
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -1047,6 +1111,11 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
                       // Narration / Remarks
                       TextFormField(
                         controller: _narrationController,
+                        focusNode: _narrationFocusNode,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) {
+                          if (!_isSaving) _submitVoucher();
+                        },
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -1286,6 +1355,8 @@ class _PaymentReceiptPageState extends State<PaymentReceiptPage>
           ),
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }

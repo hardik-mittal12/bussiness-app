@@ -1112,83 +1112,152 @@ class PdfExportService {
     return pdf.save();
   }
 
-  Future<Uint8List> exportGroupTransactionsPdf(
-    GroupTransactionsSummary summary, {
-    DateTime? fromDate,
-    DateTime? toDate,
-  }) async {
+  /// Exports the Customer Group Trial Balance report to PDF
+  Future<Uint8List> exportCustomerGroupTrialBalancePdf(
+    CustomerGroupTrialBalanceReport report,
+  ) async {
     final pdf = pw.Document();
     final profile = await profileService.getProfile();
     final logo = await _loadLogoImage();
 
-    String subtitle = 'Consolidated Statement for ${summary.group.name}';
-    if (fromDate != null || toDate != null) {
-      final fStr = fromDate != null ? _dateFormat.format(fromDate) : 'Start';
-      final tStr = toDate != null ? _dateFormat.format(toDate) : 'Present';
-      subtitle += ' ($fStr to $tStr)';
+    String periodStr = 'All Time (Cumulative)';
+    if (report.fromDate != null || report.toDate != null) {
+      final fStr = report.fromDate != null ? _dateFormat.format(report.fromDate!) : 'Beginning';
+      final tStr = report.toDate != null ? _dateFormat.format(report.toDate!) : 'Present';
+      periodStr = '$fStr to $tStr';
     }
+
+    final subtitle = 'Customer Group: ${report.group.name} | Period: $periodStr';
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        margin: const pw.EdgeInsets.all(28),
         build: (pw.Context context) {
+          final tableData = <List<String>>[];
+
+          for (final r in report.rows) {
+            tableData.add([
+              r.customerName,
+              r.openingDebit > 0 ? _currencyFormat.format(r.openingDebit) : '-',
+              r.openingCredit > 0 ? _currencyFormat.format(r.openingCredit) : '-',
+              r.periodDebit > 0 ? _currencyFormat.format(r.periodDebit) : '-',
+              r.periodCredit > 0 ? _currencyFormat.format(r.periodCredit) : '-',
+              r.closingDebit > 0 ? _currencyFormat.format(r.closingDebit) : '-',
+              r.closingCredit > 0 ? _currencyFormat.format(r.closingCredit) : '-',
+            ]);
+          }
+
+          // Totals row
+          tableData.add([
+            'GROUP TOTALS',
+            _currencyFormat.format(report.totals.totalOpeningDebit),
+            _currencyFormat.format(report.totals.totalOpeningCredit),
+            _currencyFormat.format(report.totals.totalPeriodDebit),
+            _currencyFormat.format(report.totals.totalPeriodCredit),
+            _currencyFormat.format(report.totals.totalClosingDebit),
+            _currencyFormat.format(report.totals.totalClosingCredit),
+          ]);
+
           return [
             _buildHeader(
               profile,
               logo,
-              'CUSTOMER GROUP STATEMENT',
+              'CUSTOMER GROUP TRIAL BALANCE',
               subtitle: subtitle,
             ),
-            pw.SizedBox(height: 12),
+            pw.SizedBox(height: 10),
+            // KPI Summary Banner
             pw.Container(
-              padding: const pw.EdgeInsets.all(10),
+              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: const pw.BoxDecoration(color: PdfColors.grey100),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Total Customers: ${summary.totalCustomers} (${summary.activeCustomersWithTransactions} active)',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                  if (summary.openingBalance.abs() > 0.001)
-                    pw.Text('Opening Bal: ${_currencyFormat.format(summary.openingBalance)}',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.orange900)),
-                  pw.Text('Total Debits: ${_currencyFormat.format(summary.totalDebit)}',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.blue900)),
-                  pw.Text('Total Credits: ${_currencyFormat.format(summary.totalCredit)}',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.green900)),
-                  pw.Text('Net Outstanding: ${_currencyFormat.format(summary.netOutstanding)}',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.red900)),
+                  pw.Text(
+                    'Members: ${report.totalCustomers} (${report.activeCustomers} active)',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+                  ),
+                  pw.Text(
+                    'Opening: ${_currencyFormat.format(report.totals.netOpeningBalance.abs())} ${report.totals.netOpeningBalance >= 0 ? "Dr" : "Cr"}',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.orange900),
+                  ),
+                  pw.Text(
+                    'Period Movements: ${_currencyFormat.format(report.totals.totalPeriodDebit)} Dr / ${_currencyFormat.format(report.totals.totalPeriodCredit)} Cr',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.blue900),
+                  ),
+                  pw.Text(
+                    'Net Outstanding: ${_currencyFormat.format(report.totals.netClosingOutstanding.abs())} ${report.totals.netClosingOutstanding >= 0 ? "Dr" : "Cr"}',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.red900),
+                  ),
                 ],
               ),
             ),
-            pw.SizedBox(height: 14),
+            pw.SizedBox(height: 12),
             pw.TableHelper.fromTextArray(
-              headers: ['Date', 'Voucher #', 'Type', 'Customer Name', 'Debit (Rs.)', 'Credit (Rs.)', 'Balance (Rs.)'],
-              data: summary.rows.map((r) => [
-                _dateFormat.format(r.date),
-                r.voucherNumber,
-                r.voucherType,
-                r.customerName,
-                r.debitAmount > 0 ? _currencyFormat.format(r.debitAmount) : '-',
-                r.creditAmount > 0 ? _currencyFormat.format(r.creditAmount) : '-',
-                _currencyFormat.format(r.runningBalance),
-              ]).toList(),
+              headers: [
+                'Customer Name',
+                'Opening Dr',
+                'Opening Cr',
+                'Period Dr',
+                'Period Cr',
+                'Closing Dr',
+                'Closing Cr',
+              ],
+              data: tableData,
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
-              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellStyle: const pw.TextStyle(fontSize: 7.5),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
               cellAlignment: pw.Alignment.centerLeft,
               cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerRight,
+                2: pw.Alignment.centerRight,
+                3: pw.Alignment.centerRight,
                 4: pw.Alignment.centerRight,
                 5: pw.Alignment.centerRight,
                 6: pw.Alignment.centerRight,
               },
             ),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 12),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Note: Customer Group Trial Balance position report. Reconciles with individual customer ledgers.',
+                  style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700),
+                ),
+                pw.Text(
+                  'Generated: ${_dateTimeFormat.format(DateTime.now())}',
+                  style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
+                ),
+              ],
+            ),
           ];
         },
       ),
     );
 
     return pdf.save();
+  }
+
+  /// Backward-compatible alias that exports the Customer Group report
+  Future<Uint8List> exportGroupTransactionsPdf(
+    dynamic reportOrSummary, {
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    if (reportOrSummary is CustomerGroupTrialBalanceReport) {
+      return exportCustomerGroupTrialBalancePdf(reportOrSummary);
+    }
+    if (reportOrSummary is GroupTransactionsSummary) {
+      final report = await CustomerGroupService(db).getCustomerGroupTrialBalance(
+        reportOrSummary.group.id,
+        fromDate: fromDate,
+        toDate: toDate,
+      );
+      return exportCustomerGroupTrialBalancePdf(report);
+    }
+    throw ArgumentError('Expected CustomerGroupTrialBalanceReport or GroupTransactionsSummary');
   }
 }

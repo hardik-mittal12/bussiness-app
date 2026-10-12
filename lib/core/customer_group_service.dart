@@ -2,6 +2,132 @@ import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 import '../data/database.dart';
 
+/// Parses SQLite dates from Drift Unix seconds, Unix milliseconds, ISO-8601 strings, or DateTime objects.
+/// Returns null for null or unparseable values rather than silently inventing DateTime.now().
+DateTime? parseSqliteDateTime(dynamic val) {
+  if (val == null) return null;
+  if (val is DateTime) return val;
+  if (val is int) {
+    // If abs(val) < 10,000,000,000, SQLite stored timestamp as Unix seconds (Drift default).
+    // Multiplying by 1000 converts seconds to milliseconds, resolving the 1970 date defect.
+    if (val.abs() < 10000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(val * 1000);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(val);
+  }
+  if (val is String) {
+    final trimmed = val.trim();
+    if (trimmed.isEmpty) return null;
+    final parsedInt = int.tryParse(trimmed);
+    if (parsedInt != null) {
+      return parseSqliteDateTime(parsedInt);
+    }
+    return DateTime.tryParse(trimmed);
+  }
+  return null;
+}
+
+/// Represents a single customer member row in the Customer Group Trial Balance
+class CustomerGroupMemberBalance {
+  final String customerId;
+  final String customerName;
+  final String? phone;
+  final double openingDebit;
+  final double openingCredit;
+  final double periodDebit;
+  final double periodCredit;
+  final double closingDebit;
+  final double closingCredit;
+
+  const CustomerGroupMemberBalance({
+    required this.customerId,
+    required this.customerName,
+    this.phone,
+    required this.openingDebit,
+    required this.openingCredit,
+    required this.periodDebit,
+    required this.periodCredit,
+    required this.closingDebit,
+    required this.closingCredit,
+  });
+
+  /// Signed net opening balance (positive = Dr, negative = Cr)
+  double get netOpening => openingDebit - openingCredit;
+
+  /// Signed net period movement (positive = Dr, negative = Cr)
+  double get netPeriod => periodDebit - periodCredit;
+
+  /// Signed net closing balance (positive = Dr, negative = Cr)
+  double get netClosing => closingDebit - closingCredit;
+
+  /// Whether the customer has any financial balance or movement
+  bool get hasAnyActivity =>
+      openingDebit > 0 ||
+      openingCredit > 0 ||
+      periodDebit > 0 ||
+      periodCredit > 0 ||
+      closingDebit > 0 ||
+      closingCredit > 0;
+
+  /// Whether the customer had transactions during the selected period
+  bool get hasPeriodActivity => periodDebit > 0 || periodCredit > 0;
+}
+
+/// Consolidated totals for the Customer Group Trial Balance report
+class CustomerGroupReportTotals {
+  final double totalOpeningDebit;
+  final double totalOpeningCredit;
+  final double totalPeriodDebit;
+  final double totalPeriodCredit;
+  final double totalClosingDebit;
+  final double totalClosingCredit;
+
+  const CustomerGroupReportTotals({
+    required this.totalOpeningDebit,
+    required this.totalOpeningCredit,
+    required this.totalPeriodDebit,
+    required this.totalPeriodCredit,
+    required this.totalClosingDebit,
+    required this.totalClosingCredit,
+  });
+
+  /// Net opening position across group (positive = Dr, negative = Cr)
+  double get netOpeningBalance => totalOpeningDebit - totalOpeningCredit;
+
+  /// Net period movement across group (positive = Dr, negative = Cr)
+  double get netPeriodMovement => totalPeriodDebit - totalPeriodCredit;
+
+  /// Net closing outstanding position across group (positive = Dr, negative = Cr)
+  double get netClosingOutstanding => totalClosingDebit - totalClosingCredit;
+
+  /// Total customer debit balance
+  double get totalDebitBalance => totalClosingDebit;
+
+  /// Total customer credit balance
+  double get totalCreditBalance => totalClosingCredit;
+}
+
+/// The complete Customer Group Trial Balance-style report
+class CustomerGroupTrialBalanceReport {
+  final CustomerGroup group;
+  final DateTime? fromDate;
+  final DateTime? toDate;
+  final List<CustomerGroupMemberBalance> rows;
+  final CustomerGroupReportTotals totals;
+  final int totalCustomers;
+  final int activeCustomers;
+
+  const CustomerGroupTrialBalanceReport({
+    required this.group,
+    this.fromDate,
+    this.toDate,
+    required this.rows,
+    required this.totals,
+    required this.totalCustomers,
+    required this.activeCustomers,
+  });
+}
+
 class GroupTransactionRow {
   final String voucherId;
   final String voucherNumber;
@@ -353,13 +479,9 @@ class CustomerGroupService {
       activeCustomerIds.add(cid);
 
       final dateEpoch = r.data['date'];
-      DateTime dt;
-      if (dateEpoch is int) {
-        dt = DateTime.fromMillisecondsSinceEpoch(dateEpoch);
-      } else if (dateEpoch is String) {
-        dt = DateTime.parse(dateEpoch);
-      } else {
-        dt = DateTime.now();
+      final dt = parseSqliteDateTime(dateEpoch);
+      if (dt == null) {
+        throw FormatException('Invalid or unparseable voucher date "$dateEpoch" in voucher ${r.data['voucher_id']}');
       }
 
       rows.add(GroupTransactionRow(
@@ -385,6 +507,179 @@ class CustomerGroupService {
       netOutstanding: runningBalance,
       totalCustomers: customers.length,
       activeCustomersWithTransactions: activeCustomerIds.length,
+    );
+  }
+
+  DateTime _normalizeStartOfDay(DateTime d) =>
+      DateTime(d.year, d.month, d.day, 0, 0, 0, 0);
+  DateTime _normalizeEndOfDay(DateTime d) =>
+      DateTime(d.year, d.month, d.day, 23, 59, 59, 999);
+
+  /// 13. Customer Group Trial Balance Report:
+  /// Generates a balance-oriented report for all customer members in the group
+  /// with Opening Dr/Cr, Period Dr/Cr, and Closing Dr/Cr reconciling with the accounting engine.
+  Future<CustomerGroupTrialBalanceReport> getCustomerGroupTrialBalance(
+    String groupId, {
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final group = await getGroupById(groupId);
+    if (group == null) {
+      throw ArgumentError('Customer group not found: $groupId');
+    }
+
+    final effectiveStart =
+        fromDate != null ? _normalizeStartOfDay(fromDate) : null;
+    final effectiveEnd = toDate != null ? _normalizeEndOfDay(toDate) : null;
+
+    final variables = <Variable>[];
+
+    // CASE variables for prior debits and credits (before effectiveStart)
+    final priorDrExpr = effectiveStart != null
+        ? 'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date < ? THEN ve.debit_amount ELSE 0.0 END'
+        : '0.0';
+    final priorCrExpr = effectiveStart != null
+        ? 'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date < ? THEN ve.credit_amount ELSE 0.0 END'
+        : '0.0';
+
+    if (effectiveStart != null) {
+      variables.add(Variable.withDateTime(effectiveStart));
+      variables.add(Variable.withDateTime(effectiveStart));
+    }
+
+    // CASE variables for period movements (between effectiveStart and effectiveEnd)
+    String periodDrExpr;
+    String periodCrExpr;
+
+    if (effectiveStart != null && effectiveEnd != null) {
+      periodDrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date >= ? AND v.date <= ? THEN ve.debit_amount ELSE 0.0 END';
+      periodCrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date >= ? AND v.date <= ? THEN ve.credit_amount ELSE 0.0 END';
+      variables.add(Variable.withDateTime(effectiveStart));
+      variables.add(Variable.withDateTime(effectiveEnd));
+      variables.add(Variable.withDateTime(effectiveStart));
+      variables.add(Variable.withDateTime(effectiveEnd));
+    } else if (effectiveStart != null) {
+      periodDrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date >= ? THEN ve.debit_amount ELSE 0.0 END';
+      periodCrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date >= ? THEN ve.credit_amount ELSE 0.0 END';
+      variables.add(Variable.withDateTime(effectiveStart));
+      variables.add(Variable.withDateTime(effectiveStart));
+    } else if (effectiveEnd != null) {
+      periodDrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date <= ? THEN ve.debit_amount ELSE 0.0 END';
+      periodCrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') AND v.date <= ? THEN ve.credit_amount ELSE 0.0 END';
+      variables.add(Variable.withDateTime(effectiveEnd));
+      variables.add(Variable.withDateTime(effectiveEnd));
+    } else {
+      periodDrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') THEN ve.debit_amount ELSE 0.0 END';
+      periodCrExpr =
+          'CASE WHEN v.id IS NOT NULL AND (v.status IS NULL OR v.status = \'POSTED\') THEN ve.credit_amount ELSE 0.0 END';
+    }
+
+    variables.add(Variable.withString(groupId));
+
+    final sql = '''
+      SELECT 
+        l.id AS customer_id,
+        l.name AS customer_name,
+        l.phone,
+        l.opening_balance,
+        COALESCE(SUM($priorDrExpr), 0.0) AS prior_debit,
+        COALESCE(SUM($priorCrExpr), 0.0) AS prior_credit,
+        COALESCE(SUM($periodDrExpr), 0.0) AS period_debit,
+        COALESCE(SUM($periodCrExpr), 0.0) AS period_credit
+      FROM ledgers l
+      LEFT JOIN voucher_entries ve ON ve.ledger_id = l.id
+      LEFT JOIN vouchers v ON ve.voucher_id = v.id
+      WHERE l.customer_group_id = ?
+        AND l.group_id = 'debtors'
+        AND l.is_deleted = 0
+      GROUP BY l.id, l.name, l.phone, l.opening_balance
+      ORDER BY LOWER(l.name) ASC;
+    ''';
+
+    final result = await db.customSelect(sql, variables: variables).get();
+
+    final rows = <CustomerGroupMemberBalance>[];
+    double totOpenDr = 0.0;
+    double totOpenCr = 0.0;
+    double totPeriodDr = 0.0;
+    double totPeriodCr = 0.0;
+    double totCloseDr = 0.0;
+    double totCloseCr = 0.0;
+    int activeCount = 0;
+
+    for (final r in result) {
+      final cid = r.data['customer_id'] as String;
+      final cname = r.data['customer_name'] as String;
+      final phone = r.data['phone'] as String?;
+      final baseOpening =
+          (r.data['opening_balance'] as num?)?.toDouble() ?? 0.0;
+      final priorDr = (r.data['prior_debit'] as num?)?.toDouble() ?? 0.0;
+      final priorCr = (r.data['prior_credit'] as num?)?.toDouble() ?? 0.0;
+      final periodDr = (r.data['period_debit'] as num?)?.toDouble() ?? 0.0;
+      final periodCr = (r.data['period_credit'] as num?)?.toDouble() ?? 0.0;
+
+      // Opening balance immediately before effectiveStart
+      final netOpening = baseOpening + priorDr - priorCr;
+      final double openingDebit = netOpening > 0 ? netOpening : 0.0;
+      final double openingCredit = netOpening < 0 ? netOpening.abs() : 0.0;
+
+      // Closing balance as of effectiveEnd (reconciles with AccountingEngine.getLedgerBalance)
+      final netClosing = netOpening + periodDr - periodCr;
+      final double closingDebit = netClosing > 0 ? netClosing : 0.0;
+      final double closingCredit = netClosing < 0 ? netClosing.abs() : 0.0;
+
+      totOpenDr += openingDebit;
+      totOpenCr += openingCredit;
+      totPeriodDr += periodDr;
+      totPeriodCr += periodCr;
+      totCloseDr += closingDebit;
+      totCloseCr += closingCredit;
+
+      // Active customer definition: has period transactions or an outstanding closing balance
+      if (periodDr > 0 ||
+          periodCr > 0 ||
+          closingDebit > 0 ||
+          closingCredit > 0) {
+        activeCount++;
+      }
+
+      rows.add(CustomerGroupMemberBalance(
+        customerId: cid,
+        customerName: cname,
+        phone: phone,
+        openingDebit: openingDebit,
+        openingCredit: openingCredit,
+        periodDebit: periodDr,
+        periodCredit: periodCr,
+        closingDebit: closingDebit,
+        closingCredit: closingCredit,
+      ));
+    }
+
+    final totals = CustomerGroupReportTotals(
+      totalOpeningDebit: totOpenDr,
+      totalOpeningCredit: totOpenCr,
+      totalPeriodDebit: totPeriodDr,
+      totalPeriodCredit: totPeriodCr,
+      totalClosingDebit: totCloseDr,
+      totalClosingCredit: totCloseCr,
+    );
+
+    return CustomerGroupTrialBalanceReport(
+      group: group,
+      fromDate: fromDate,
+      toDate: toDate,
+      rows: rows,
+      totals: totals,
+      totalCustomers: rows.length,
+      activeCustomers: activeCount,
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/accounting_engine.dart';
 import '../core/pdf_export_service.dart';
@@ -1644,21 +1645,42 @@ class _GroupEntriesDialogState extends State<_GroupEntriesDialog> {
   final DateFormat _dateFormat = DateFormat('dd-MMM-yyyy');
   DateTime? _startDate;
   DateTime? _endDate;
-  late Future<GroupTransactionsSummary> _summaryFuture;
+  late Future<CustomerGroupTrialBalanceReport> _reportFuture;
+
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+
+  String _sortColumn = 'name';
+  bool _sortAscending = true;
+  int _selectedRowIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    _loadSummary();
+    _loadReport();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim();
+        _selectedRowIndex = -1;
+      });
+    });
   }
 
-  void _loadSummary() {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _loadReport() {
     final groupService = Provider.of<CustomerGroupService>(context, listen: false);
     setState(() {
-      _summaryFuture = groupService.getGroupTransactions(
+      _reportFuture = groupService.getCustomerGroupTrialBalance(
         widget.group.id,
-        startDate: _startDate,
-        endDate: _endDate,
+        fromDate: _startDate,
+        toDate: _endDate,
       );
     });
   }
@@ -1677,7 +1699,7 @@ class _GroupEntriesDialogState extends State<_GroupEntriesDialog> {
         _startDate = picked.start;
         _endDate = picked.end;
       });
-      _loadSummary();
+      _loadReport();
     }
   }
 
@@ -1686,294 +1708,679 @@ class _GroupEntriesDialogState extends State<_GroupEntriesDialog> {
       _startDate = null;
       _endDate = null;
     });
-    _loadSummary();
+    _loadReport();
+  }
+
+  void _toggleSort(String column) {
+    setState(() {
+      if (_sortColumn == column) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortColumn = column;
+        _sortAscending = true;
+      }
+    });
+  }
+
+  List<CustomerGroupMemberBalance> _getSortedFilteredRows(List<CustomerGroupMemberBalance> originalRows) {
+    var rows = originalRows;
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      rows = rows.where((r) => r.customerName.toLowerCase().contains(q) || (r.phone != null && r.phone!.contains(q))).toList();
+    } else {
+      rows = List.from(rows);
+    }
+
+    rows.sort((a, b) {
+      int cmp;
+      switch (_sortColumn) {
+        case 'open_dr':
+          cmp = a.openingDebit.compareTo(b.openingDebit);
+          break;
+        case 'open_cr':
+          cmp = a.openingCredit.compareTo(b.openingCredit);
+          break;
+        case 'per_dr':
+          cmp = a.periodDebit.compareTo(b.periodDebit);
+          break;
+        case 'per_cr':
+          cmp = a.periodCredit.compareTo(b.periodCredit);
+          break;
+        case 'close_dr':
+          cmp = a.closingDebit.compareTo(b.closingDebit);
+          break;
+        case 'close_cr':
+          cmp = a.closingCredit.compareTo(b.closingCredit);
+          break;
+        case 'net':
+          cmp = a.netClosing.compareTo(b.netClosing);
+          break;
+        case 'name':
+        default:
+          cmp = a.customerName.toLowerCase().compareTo(b.customerName.toLowerCase());
+          break;
+      }
+      return _sortAscending ? cmp : -cmp;
+    });
+
+    return rows;
   }
 
   @override
   Widget build(BuildContext context) {
     final db = Provider.of<AppDatabase>(context, listen: false);
 
-    return Dialog(
-      backgroundColor: AppColors.background,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
-        width: 1000,
-        height: 700,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Bar
-            Row(
-              children: [
-                const CircleAvatar(
-                  backgroundColor: AppColors.primaryBackground,
-                  child: Icon(Icons.receipt_long_rounded, color: AppColors.primary),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_searchController.text.isNotEmpty) {
+            _searchController.clear();
+            setState(() => _searchQuery = '');
+          } else {
+            Navigator.of(context).pop();
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.slash): () {
+          _searchFocusNode.requestFocus();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+          _searchFocusNode.requestFocus();
+        },
+      },
+      child: Dialog(
+        backgroundColor: AppColors.background,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          width: 1100,
+          height: 750,
+          padding: const EdgeInsets.all(24),
+          child: FutureBuilder<CustomerGroupTrialBalanceReport>(
+            future: _reportFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+              }
+              if (snapshot.hasError) {
+                return Center(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        'Group Statement: ${widget.group.name}',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
+                      const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                      const SizedBox(height: 12),
+                      Text('Failed to load group report: ${snapshot.error}', style: const TextStyle(color: AppColors.error)),
+                      const SizedBox(height: 12),
+                      ElevatedButton(onPressed: _loadReport, child: const Text('Retry')),
+                    ],
+                  ),
+                );
+              }
+
+              final report = snapshot.data;
+              if (report == null) {
+                return const Center(child: Text('No data found'));
+              }
+
+              final displayedRows = _getSortedFilteredRows(report.rows);
+
+              // Calculate filtered totals if search query is active
+              final isFiltered = _searchQuery.isNotEmpty;
+              final double dispOpenDr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.openingDebit) : report.totals.totalOpeningDebit;
+              final double dispOpenCr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.openingCredit) : report.totals.totalOpeningCredit;
+              final double dispPerDr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.periodDebit) : report.totals.totalPeriodDebit;
+              final double dispPerCr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.periodCredit) : report.totals.totalPeriodCredit;
+              final double dispCloseDr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.closingDebit) : report.totals.totalClosingDebit;
+              final double dispCloseCr = isFiltered ? displayedRows.fold(0.0, (s, r) => s + r.closingCredit) : report.totals.totalClosingCredit;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top Bar
+                  Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: AppColors.primaryBackground,
+                        child: Icon(Icons.account_balance_rounded, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'Group Trial Balance: ${widget.group.name}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceSecondary,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: const Text(
+                                    'Customer Group Report',
+                                    style: TextStyle(fontSize: 10, color: AppColors.textSecondary, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.group.description != null && widget.group.description!.isNotEmpty
+                                  ? widget.group.description!
+                                  : 'Balance-oriented position report reconciling with individual customer ledgers',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                            ),
+                          ],
                         ),
                       ),
-                      if (widget.group.description != null && widget.group.description!.isNotEmpty)
-                        Text(
-                          widget.group.description!,
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      // Date Range Filter
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.date_range_rounded, size: 16),
+                        label: Text(
+                          _startDate != null && _endDate != null
+                              ? '${_dateFormat.format(_startDate!)} - ${_dateFormat.format(_endDate!)}'
+                              : 'All Time (Cumulative)',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: _selectDateRange,
+                      ),
+                      if (_startDate != null || _endDate != null) ...[
+                        const SizedBox(width: 6),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
+                          tooltip: 'Reset to All Time',
+                          onPressed: _clearDateRange,
+                        ),
+                      ],
+                      const SizedBox(width: 8),
+                      // PDF Export Button
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                        label: const Text('Export PDF'),
+                        onPressed: () async {
+                          try {
+                            final pdfService = PdfExportService(db);
+                            final bytes = await pdfService.exportCustomerGroupTrialBalancePdf(report);
+                            await Printing.layoutPdf(
+                              onLayout: (format) async => bytes,
+                              name: 'Group_Trial_Balance_${widget.group.name.replaceAll(' ', '_')}.pdf',
+                            );
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to export PDF: $e')),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Close (Esc)',
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // KPI Summary Cards
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildKpiCard(
+                          'Total Customers',
+                          '${report.totalCustomers} (${report.activeCustomers} active)',
+                          AppColors.primary,
+                          Icons.group_rounded,
+                          subtitle: report.totalCustomers - report.activeCustomers > 0
+                              ? '${report.totalCustomers - report.activeCustomers} dormant'
+                              : 'All active',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildKpiCard(
+                          'Total Opening Balance',
+                          '${_currencyFormat.format(report.totals.netOpeningBalance.abs())} ${report.totals.netOpeningBalance >= 0 ? "Dr" : "Cr"}',
+                          AppColors.textSecondary,
+                          Icons.history_rounded,
+                          subtitle: 'Dr: ${_currencyFormat.format(report.totals.totalOpeningDebit)} | Cr: ${_currencyFormat.format(report.totals.totalOpeningCredit)}',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildKpiCard(
+                          'Period Movements',
+                          '${_currencyFormat.format(report.totals.totalPeriodDebit)} Dr',
+                          AppColors.primary,
+                          Icons.swap_horiz_rounded,
+                          subtitle: 'Receipts/Cr: ${_currencyFormat.format(report.totals.totalPeriodCredit)}',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildKpiCard(
+                          'Closing Customer Debt',
+                          '${_currencyFormat.format(report.totals.totalClosingDebit)} Dr',
+                          AppColors.error,
+                          Icons.arrow_upward_rounded,
+                          subtitle: 'Credit Balances: ${_currencyFormat.format(report.totals.totalClosingCredit)} Cr',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildKpiCard(
+                          'Net Group Position',
+                          '${_currencyFormat.format(report.totals.netClosingOutstanding.abs())} ${report.totals.netClosingOutstanding >= 0 ? "Dr" : "Cr"}',
+                          report.totals.netClosingOutstanding > 0 ? AppColors.error : AppColors.success,
+                          Icons.account_balance_wallet_rounded,
+                          subtitle: report.totals.netClosingOutstanding >= 0 ? 'Net Receivable' : 'Net Advance/Payable',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Search & Filter Toolbar
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: _searchController,
+                            focusNode: _searchFocusNode,
+                            decoration: InputDecoration(
+                              hintText: 'Search customer by name or phone in this group... (Press "/" or Ctrl+F)',
+                              hintStyle: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                              suffixIcon: _searchQuery.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear_rounded, size: 16),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                      },
+                                    )
+                                  : null,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
+                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.primary)),
+                              filled: true,
+                              fillColor: AppColors.surface,
+                            ),
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      if (isFiltered)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceSecondary,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Text(
+                            'Showing ${displayedRows.length} of ${report.totalCustomers} customers',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                          ),
                         ),
                     ],
                   ),
-                ),
-                // Date Range Button
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.date_range_rounded, size: 16),
-                  label: Text(
-                    _startDate != null && _endDate != null
-                        ? '${_dateFormat.format(_startDate!)} - ${_dateFormat.format(_endDate!)}'
-                        : 'Filter Date Range',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onPressed: _selectDateRange,
-                ),
-                if (_startDate != null || _endDate != null) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
-                    tooltip: 'Clear Date Filter',
-                    onPressed: _clearDateRange,
-                  ),
-                ],
-                const SizedBox(width: 8),
-                FutureBuilder<GroupTransactionsSummary>(
-                  future: _summaryFuture,
-                  builder: (context, snapshot) {
-                    final summary = snapshot.data;
-                    return ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
+                  const SizedBox(height: 10),
+
+                  // Customer Balance Table
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
                       ),
-                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
-                      label: const Text('Export PDF'),
-                      onPressed: summary == null
-                          ? null
-                          : () async {
-                              try {
-                                final pdfService = PdfExportService(db);
-                                final bytes = await pdfService.exportGroupTransactionsPdf(
-                                  summary,
-                                  fromDate: _startDate,
-                                  toDate: _endDate,
-                                );
-                                await Printing.layoutPdf(
-                                  onLayout: (format) async => bytes,
-                                  name: 'Group_Statement_${widget.group.name.replaceAll(' ', '_')}.pdf',
-                                );
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Failed to export PDF: $e')),
-                                  );
-                                }
-                              }
-                            },
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Content
-            Expanded(
-              child: FutureBuilder<GroupTransactionsSummary>(
-                future: _summaryFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: AppColors.primary));
-                  }
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: AppColors.error)));
-                  }
-
-                  final summary = snapshot.data;
-                  if (summary == null) {
-                    return const Center(child: Text('No data found'));
-                  }
-
-                  return Column(
-                    children: [
-                      // KPI Summary Cards
-                      Row(
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: _buildKpiCard(
-                              'Total Customers',
-                              '${summary.totalCustomers} (${summary.activeCustomersWithTransactions} active)',
-                              AppColors.primary,
-                              Icons.group_rounded,
+                          // Table Header
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: const BoxDecoration(
+                              color: AppColors.surfaceSecondary,
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(9)),
+                              border: Border(bottom: BorderSide(color: AppColors.border)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: _buildHeaderCell('Customer Name', 'name', Alignment.centerLeft),
+                                ),
+                                SizedBox(
+                                  width: 105,
+                                  child: _buildHeaderCell('Opening Dr', 'open_dr', Alignment.centerRight),
+                                ),
+                                SizedBox(
+                                  width: 105,
+                                  child: _buildHeaderCell('Opening Cr', 'open_cr', Alignment.centerRight),
+                                ),
+                                SizedBox(
+                                  width: 110,
+                                  child: _buildHeaderCell('Period Dr', 'per_dr', Alignment.centerRight),
+                                ),
+                                SizedBox(
+                                  width: 110,
+                                  child: _buildHeaderCell('Period Cr', 'per_cr', Alignment.centerRight),
+                                ),
+                                SizedBox(
+                                  width: 120,
+                                  child: _buildHeaderCell('Closing Dr', 'close_dr', Alignment.centerRight),
+                                ),
+                                SizedBox(
+                                  width: 120,
+                                  child: _buildHeaderCell('Closing Cr', 'close_cr', Alignment.centerRight),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 12),
+
+                          // Table Body
                           Expanded(
-                            child: _buildKpiCard(
-                              'Total Debits (Sales/Charges)',
-                              _currencyFormat.format(summary.totalDebit),
-                              AppColors.primary,
-                              Icons.arrow_upward_rounded,
-                            ),
+                            child: displayedRows.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      isFiltered
+                                          ? 'No customers match the search query "$_searchQuery"'
+                                          : 'No customers assigned to this group yet.',
+                                      style: const TextStyle(color: AppColors.textMuted),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    itemCount: displayedRows.length,
+                                    separatorBuilder: (context, i) => const Divider(height: 1, color: AppColors.border),
+                                    itemBuilder: (context, i) {
+                                      final row = displayedRows[i];
+                                      final isSelected = _selectedRowIndex == i;
+
+                                      return InkWell(
+                                        onTap: () {
+                                          setState(() => _selectedRowIndex = i);
+                                        },
+                                        onDoubleTap: () async {
+                                          // Open individual customer statement
+                                          final ledger = await (db.select(db.ledgers)..where((t) => t.id.equals(row.customerId))).getSingleOrNull();
+                                          if (ledger != null && context.mounted) {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => LedgerStatementPage(ledger: ledger),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: Container(
+                                          color: isSelected ? AppColors.primary.withValues(alpha: 0.08) : Colors.transparent,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                flex: 3,
+                                                child: Row(
+                                                  children: [
+                                                    Text(
+                                                      '${i + 1}. ',
+                                                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                                    ),
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        children: [
+                                                          Text(
+                                                            row.customerName,
+                                                            style: const TextStyle(
+                                                              fontWeight: FontWeight.w600,
+                                                              fontSize: 13,
+                                                              color: AppColors.textPrimary,
+                                                            ),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                          if (row.phone != null && row.phone!.isNotEmpty)
+                                                            Text(
+                                                              row.phone!,
+                                                              style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 105,
+                                                child: Text(
+                                                  row.openingDebit > 0 ? _currencyFormat.format(row.openingDebit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: row.openingDebit > 0 ? FontWeight.bold : FontWeight.normal,
+                                                    color: row.openingDebit > 0 ? AppColors.textPrimary : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 105,
+                                                child: Text(
+                                                  row.openingCredit > 0 ? _currencyFormat.format(row.openingCredit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: row.openingCredit > 0 ? FontWeight.bold : FontWeight.normal,
+                                                    color: row.openingCredit > 0 ? AppColors.success : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 110,
+                                                child: Text(
+                                                  row.periodDebit > 0 ? _currencyFormat.format(row.periodDebit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: row.periodDebit > 0 ? FontWeight.bold : FontWeight.normal,
+                                                    color: row.periodDebit > 0 ? AppColors.primary : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 110,
+                                                child: Text(
+                                                  row.periodCredit > 0 ? _currencyFormat.format(row.periodCredit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: row.periodCredit > 0 ? FontWeight.bold : FontWeight.normal,
+                                                    color: row.periodCredit > 0 ? AppColors.success : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 120,
+                                                child: Text(
+                                                  row.closingDebit > 0 ? _currencyFormat.format(row.closingDebit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: row.closingDebit > 0 ? AppColors.error : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                              SizedBox(
+                                                width: 120,
+                                                child: Text(
+                                                  row.closingCredit > 0 ? _currencyFormat.format(row.closingCredit) : '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: row.closingCredit > 0 ? AppColors.success : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildKpiCard(
-                              'Total Credits (Receipts/Returns)',
-                              _currencyFormat.format(summary.totalCredit),
-                              AppColors.success,
-                              Icons.arrow_downward_rounded,
+
+                          // Totals Row
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: const BoxDecoration(
+                              color: AppColors.surfaceSecondary,
+                              borderRadius: BorderRadius.vertical(bottom: Radius.circular(9)),
+                              border: Border(top: BorderSide(color: AppColors.border, width: 1.5)),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildKpiCard(
-                              'Net Group Outstanding',
-                              '${_currencyFormat.format(summary.netOutstanding.abs())} ${summary.netOutstanding >= 0 ? "Dr" : "Cr"}',
-                              summary.netOutstanding > 0 ? AppColors.error : AppColors.success,
-                              Icons.account_balance_wallet_rounded,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        isFiltered
+                                            ? 'FILTERED TOTALS (${displayedRows.length} of ${report.totalCustomers})'
+                                            : 'GROUP TOTALS (${report.totalCustomers} customers)',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
+                                      ),
+                                      Text(
+                                        'Net Position: ${_currencyFormat.format((dispCloseDr - dispCloseCr).abs())} ${(dispCloseDr - dispCloseCr) >= 0 ? "Dr (Receivable)" : "Cr (Advance)"}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: (dispCloseDr - dispCloseCr) >= 0 ? AppColors.error : AppColors.success,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 105,
+                                  child: Text(
+                                    _currencyFormat.format(dispOpenDr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 105,
+                                  child: Text(
+                                    _currencyFormat.format(dispOpenCr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.success),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 110,
+                                  child: Text(
+                                    _currencyFormat.format(dispPerDr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.primary),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 110,
+                                  child: Text(
+                                    _currencyFormat.format(dispPerCr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.success),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 120,
+                                  child: Text(
+                                    _currencyFormat.format(dispCloseDr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.error),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 120,
+                                  child: Text(
+                                    _currencyFormat.format(dispCloseCr),
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.success),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-
-                      // Entries Table
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: summary.rows.isEmpty
-                              ? const Center(
-                                  child: Text('No transactions recorded for this customer group in the selected period.',
-                                      style: TextStyle(color: AppColors.textMuted)),
-                                )
-                              : ListView.separated(
-                                  itemCount: summary.rows.length,
-                                  separatorBuilder: (context, i) => const Divider(height: 1, color: AppColors.border),
-                                  itemBuilder: (context, i) {
-                                    final row = summary.rows[i];
-                                    return ListTile(
-                                      dense: true,
-                                      title: Row(
-                                        children: [
-                                          SizedBox(
-                                            width: 90,
-                                            child: Text(
-                                              _dateFormat.format(row.date),
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primaryBackground,
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              '#${row.voucherNumber} (${row.voucherType})',
-                                              style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              row.customerName,
-                                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary),
-                                            ),
-                                          ),
-                                          if (row.debitAmount > 0)
-                                            SizedBox(
-                                              width: 110,
-                                              child: Text(
-                                                '+ ${_currencyFormat.format(row.debitAmount)}',
-                                                textAlign: TextAlign.right,
-                                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12),
-                                              ),
-                                            )
-                                          else
-                                            const SizedBox(width: 110),
-                                          if (row.creditAmount > 0)
-                                            SizedBox(
-                                              width: 110,
-                                              child: Text(
-                                                '- ${_currencyFormat.format(row.creditAmount)}',
-                                                textAlign: TextAlign.right,
-                                                style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 12),
-                                              ),
-                                            )
-                                          else
-                                            const SizedBox(width: 110),
-                                          const SizedBox(width: 16),
-                                          SizedBox(
-                                            width: 120,
-                                            child: Text(
-                                              'Bal: ${_currencyFormat.format(row.runningBalance)}',
-                                              textAlign: TextAlign.right,
-                                              style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      subtitle: (row.narration != null && row.narration!.isNotEmpty)
-                                          ? Padding(
-                                              padding: const EdgeInsets.only(left: 90, top: 2),
-                                              child: Text(
-                                                row.narration!,
-                                                style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            )
-                                          : null,
-                                      onTap: () {
-                                        VoucherDetailDialog.show(
-                                          context,
-                                          row.voucherId,
-                                          onDeleted: _loadSummary,
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildKpiCard(String label, String value, Color color, IconData icon) {
+  Widget _buildHeaderCell(String label, String columnKey, Alignment alignment) {
+    final isSelected = _sortColumn == columnKey;
+    return InkWell(
+      onTap: () => _toggleSort(columnKey),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Align(
+          alignment: alignment,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                ),
+              ),
+              if (isSelected) ...[
+                const SizedBox(width: 2),
+                Icon(
+                  _sortAscending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                  size: 13,
+                  color: AppColors.primary,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKpiCard(String label, String value, Color color, IconData icon, {String? subtitle}) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
@@ -1982,22 +2389,31 @@ class _GroupEntriesDialogState extends State<_GroupEntriesDialog> {
       child: Row(
         children: [
           CircleAvatar(
-            radius: 18,
+            radius: 16,
             backgroundColor: color.withValues(alpha: 0.12),
-            child: Icon(icon, color: color, size: 18),
+            child: Icon(icon, color: color, size: 16),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+                Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color),
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 9.5, color: AppColors.textMuted),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
